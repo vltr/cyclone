@@ -1,0 +1,1013 @@
+
+
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"
+  "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+
+
+<html xmlns="http://www.w3.org/1999/xhtml">
+  <head>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+    
+    <title>Overview &mdash; cyclone git-2013042301 documentation</title>
+    
+    <link rel="stylesheet" href="_static/sphinx.css" type="text/css" />
+    <link rel="stylesheet" href="_static/pygments.css" type="text/css" />
+    
+    <script type="text/javascript">
+      var DOCUMENTATION_OPTIONS = {
+        URL_ROOT:    '',
+        VERSION:     'git-2013042301',
+        COLLAPSE_INDEX: false,
+        FILE_SUFFIX: '.html',
+        HAS_SOURCE:  true
+      };
+    </script>
+    <script type="text/javascript" src="_static/jquery.js"></script>
+    <script type="text/javascript" src="_static/underscore.js"></script>
+    <script type="text/javascript" src="_static/doctools.js"></script>
+    <link rel="top" title="cyclone git-2013042301 documentation" href="index.html" />
+    <link rel="next" title="Deferreds and inline callbacks" href="deferreds.html" />
+    <link rel="prev" title="Cyclone documentation" href="index.html" /> 
+  </head>
+  <body>
+    <div class="related">
+      <h3>Navigation</h3>
+      <ul>
+        <li class="right" style="margin-right: 10px">
+          <a href="genindex.html" title="General Index"
+             accesskey="I">index</a></li>
+        <li class="right" >
+          <a href="py-modindex.html" title="Python Module Index"
+             >modules</a> |</li>
+        <li class="right" >
+          <a href="deferreds.html" title="Deferreds and inline callbacks"
+             accesskey="N">next</a> |</li>
+        <li class="right" >
+          <a href="index.html" title="Cyclone documentation"
+             accesskey="P">previous</a> |</li>
+        <li><a href="index.html">cyclone git-2013042301 documentation</a> &raquo;</li> 
+      </ul>
+    </div>  
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          <div class="body">
+            
+  <div class="section" id="overview">
+<h1>Overview<a class="headerlink" href="#overview" title="Permalink to this headline">¶</a></h1>
+<p><a class="reference external" href="https://github.com/fiorix/cyclone">Cyclone</a> is a web server framework
+for Python, that implements the Tornado API as a Twisted protocol.</p>
+<p><a class="reference external" href="http://twistedmatrix.com">Twisted</a> is an event-driven network programming
+framework for Python, that dates back from 2002. It&#8217;s one of the most mature
+libraries for non-blocking I/O available to the public. <a class="reference external" href="http://tornadoweb.org">Tornado</a> is the open source version of FriendFeed&#8217;s
+web server, one of the most popular and fast web servers for Python, with
+a very decent API for building web applications.</p>
+<p>The idea is that applications built with Cyclone look like Tornado, which is
+a very nice and straightforward way of structuring web applications, but
+on the other hand leverage all protocols supported by twisted.</p>
+<p>This combination provides the ground for building up hybrid servers that not
+only can handle http clients very efficiently, but also serve or use e-mail,
+ssh, sip, irc, etc, all concurrently.</p>
+<p>Besides the rich feature set, there&#8217;s also an effort for addressing the C10K
+problem. For more information check <a class="reference external" href="http://www.kegel.com/c10k.html">http://www.kegel.com/c10k.html</a>.</p>
+<p>Here is the canonical &#8220;Hello, world&#8221; example app:</p>
+<div class="highlight-none"><div class="highlight"><pre>import cyclone.web
+import sys
+
+from twisted.internet import reactor
+from twisted.python import log
+
+
+class MainHandler(cyclone.web.RequestHandler):
+    def get(self):
+        self.write(&quot;Hello, world&quot;)
+
+
+if __name__ == &quot;__main__&quot;:
+    application = cyclone.web.Application([
+        (r&quot;/&quot;, MainHandler)
+    ])
+
+    log.startLogging(sys.stdout)
+    reactor.listenTCP(8888, application)
+    reactor.run()
+</pre></div>
+</div>
+<p>We attempted to clean up the code base to reduce interdependencies
+between modules, so you should (theoretically) be able to use any of the
+modules independently in your project without using the whole package.</p>
+<div class="section" id="request-handlers-and-arguments">
+<h2>Request handlers and arguments<a class="headerlink" href="#request-handlers-and-arguments" title="Permalink to this headline">¶</a></h2>
+<p>A Cyclone web application maps URLs or URL patterns to subclasses of
+<a class="reference internal" href="web.html#cyclone.web.RequestHandler" title="cyclone.web.RequestHandler"><tt class="xref py py-obj docutils literal"><span class="pre">cyclone.web.RequestHandler</span></tt></a>. Those classes define <tt class="docutils literal"><span class="pre">get()</span></tt> or <tt class="docutils literal"><span class="pre">post()</span></tt>
+methods to handle HTTP <tt class="docutils literal"><span class="pre">GET</span></tt> or <tt class="docutils literal"><span class="pre">POST</span></tt> requests to that URL.</p>
+<p>This code maps the root URL <tt class="docutils literal"><span class="pre">/</span></tt> to <tt class="docutils literal"><span class="pre">MainHandler</span></tt> and the URL pattern
+<tt class="docutils literal"><span class="pre">/story/([0-9]+)</span></tt> to <tt class="docutils literal"><span class="pre">StoryHandler</span></tt>. Regular expression groups are
+passed as arguments to the <tt class="docutils literal"><span class="pre">RequestHandler</span></tt> methods:</p>
+<div class="highlight-none"><div class="highlight"><pre>class MainHandler(cyclone.web.RequestHandler):
+    def get(self):
+        self.write(&quot;You requested the main page&quot;)
+
+class StoryHandler(cyclone.web.RequestHandler):
+    def get(self, story_id):
+        self.write(&quot;You requested the story &quot; + story_id)
+
+application = cyclone.web.Application([
+    (r&quot;/&quot;, MainHandler),
+    (r&quot;/story/([0-9]+)&quot;, StoryHandler),
+])
+</pre></div>
+</div>
+<p>You can get query string arguments and parse <tt class="docutils literal"><span class="pre">POST</span></tt> bodies with the
+<tt class="docutils literal"><span class="pre">get_argument()</span></tt> method:</p>
+<div class="highlight-none"><div class="highlight"><pre>class MyFormHandler(cyclone.web.RequestHandler):
+    def get(self):
+        self.write(&#39;&lt;html&gt;&lt;body&gt;&lt;form action=&quot;/myform&quot; method=&quot;post&quot;&gt;&#39;
+                   &#39;&lt;input type=&quot;text&quot; name=&quot;message&quot;&gt;&#39;
+                   &#39;&lt;input type=&quot;submit&quot; value=&quot;Submit&quot;&gt;&#39;
+                   &#39;&lt;/form&gt;&lt;/body&gt;&lt;/html&gt;&#39;)
+
+    def post(self):
+        self.set_header(&quot;Content-Type&quot;, &quot;text/plain&quot;)
+        self.write(&quot;You wrote &quot; + self.get_argument(&quot;message&quot;))
+</pre></div>
+</div>
+<p>Uploaded files are available in <tt class="docutils literal"><span class="pre">self.request.files</span></tt>, which maps names
+(the name of the HTML <tt class="docutils literal"><span class="pre">&lt;input</span> <span class="pre">type=&quot;file&quot;&gt;</span></tt> element) to a list of
+files. Each file is a dictionary of the form
+<tt class="docutils literal"><span class="pre">{&quot;filename&quot;:...,</span> <span class="pre">&quot;content_type&quot;:...,</span> <span class="pre">&quot;body&quot;:...}</span></tt>.</p>
+<p>If you want to send an error response to the client, e.g., 403
+Unauthorized, you can just raise a <tt class="docutils literal"><span class="pre">cyclone.web.HTTPError</span></tt> exception:</p>
+<div class="highlight-none"><div class="highlight"><pre>if not self.user_is_logged_in():
+    raise cyclone.web.HTTPError(403)
+</pre></div>
+</div>
+<p>The request handler can access the object representing the current request
+with <tt class="docutils literal"><span class="pre">self.request</span></tt>. The <tt class="docutils literal"><span class="pre">HTTPRequest</span></tt> object includes a number of useful
+attributes, including:</p>
+<ul class="simple">
+<li><tt class="docutils literal"><span class="pre">arguments</span></tt> - all of the <tt class="docutils literal"><span class="pre">GET</span></tt> and <tt class="docutils literal"><span class="pre">POST</span></tt> arguments</li>
+<li><tt class="docutils literal"><span class="pre">files</span></tt> - all of the uploaded files (via <tt class="docutils literal"><span class="pre">multipart/form-data</span></tt>
+POST requests)</li>
+<li><tt class="docutils literal"><span class="pre">path</span></tt> - the request path (everything before the <tt class="docutils literal"><span class="pre">?</span></tt>)</li>
+<li><tt class="docutils literal"><span class="pre">headers</span></tt> - the request headers</li>
+</ul>
+<p>See the class definition for <a class="reference internal" href="httpserver.html#cyclone.httpserver.HTTPRequest" title="cyclone.httpserver.HTTPRequest"><tt class="xref py py-obj docutils literal"><span class="pre">cyclone.httpserver.HTTPRequest</span></tt></a> for a
+complete list of attributes.</p>
+</div>
+<div class="section" id="overriding-requesthandler-methods">
+<h2>Overriding RequestHandler methods<a class="headerlink" href="#overriding-requesthandler-methods" title="Permalink to this headline">¶</a></h2>
+<p>In addition to <tt class="docutils literal"><span class="pre">get()</span></tt>/<tt class="docutils literal"><span class="pre">post()</span></tt>/etc, certain other methods in
+<tt class="docutils literal"><span class="pre">RequestHandler</span></tt> are designed to be overridden by subclasses when
+necessary. On every request, the following sequence of calls takes
+place:</p>
+<ol class="arabic simple">
+<li>A new RequestHandler object is created on each request</li>
+<li><tt class="docutils literal"><span class="pre">initialize()</span></tt> is called with keyword arguments from the
+<tt class="docutils literal"><span class="pre">Application</span></tt> configuration. (the <tt class="docutils literal"><span class="pre">initialize</span></tt> method is new in
+Tornado 1.1; in older versions subclasses would override <tt class="docutils literal"><span class="pre">__init__</span></tt>
+instead). <tt class="docutils literal"><span class="pre">initialize</span></tt> should typically just save the arguments
+passed into member variables; it may not produce any output or call
+methods like <tt class="docutils literal"><span class="pre">send_error</span></tt>.</li>
+<li><tt class="docutils literal"><span class="pre">prepare()</span></tt> is called. This is most useful in a base class shared
+by all of your handler subclasses, as <tt class="docutils literal"><span class="pre">prepare</span></tt> is called no matter
+which HTTP method is used. <tt class="docutils literal"><span class="pre">prepare</span></tt> may produce output; if it
+calls <tt class="docutils literal"><span class="pre">finish</span></tt> (or <tt class="docutils literal"><span class="pre">send_error</span></tt>, etc), processing stops here.</li>
+<li>One of the HTTP methods is called: <tt class="docutils literal"><span class="pre">get()</span></tt>, <tt class="docutils literal"><span class="pre">post()</span></tt>, <tt class="docutils literal"><span class="pre">put()</span></tt>,
+etc. If the URL regular expression contains capturing groups, they
+are passed as arguments to this method.</li>
+<li>When the request is finished, <tt class="docutils literal"><span class="pre">on_finish()</span></tt> is called.  For synchronous
+handlers this is immediately after <tt class="docutils literal"><span class="pre">get()</span></tt> (etc) return; for
+asynchronous handlers it is after the call to <tt class="docutils literal"><span class="pre">finish()</span></tt>.</li>
+</ol>
+<p>Here is an example demonstrating the <tt class="docutils literal"><span class="pre">initialize()</span></tt> method:</p>
+<div class="highlight-none"><div class="highlight"><pre>class ProfileHandler(RequestHandler):
+    def initialize(self, database):
+        self.database = database
+
+    def get(self, username):
+        ...
+
+app = Application([
+    (r&#39;/user/(.*)&#39;, ProfileHandler, dict(database=database)),
+    ])
+</pre></div>
+</div>
+<p>Other methods designed for overriding include:</p>
+<ul class="simple">
+<li><tt class="docutils literal"><span class="pre">write_error(self,</span> <span class="pre">status_code,</span> <span class="pre">exc_info=None,</span> <span class="pre">**kwargs)</span></tt> -
+outputs HTML for use on error pages.</li>
+<li><tt class="docutils literal"><span class="pre">get_current_user(self)</span></tt> - see <a class="reference external" href="#user-authentication">User
+Authentication</a> below</li>
+<li><tt class="docutils literal"><span class="pre">get_user_locale(self)</span></tt> - returns <tt class="docutils literal"><span class="pre">locale</span></tt> object to use for the
+current user</li>
+<li><tt class="docutils literal"><span class="pre">get_login_url(self)</span></tt> - returns login url to be used by the
+<tt class="docutils literal"><span class="pre">&#64;authenticated</span></tt> decorator (default is in <tt class="docutils literal"><span class="pre">Application</span></tt> settings)</li>
+<li><tt class="docutils literal"><span class="pre">get_template_path(self)</span></tt> - returns location of template files
+(default is in <tt class="docutils literal"><span class="pre">Application</span></tt> settings)</li>
+<li><tt class="docutils literal"><span class="pre">set_default_headers(self)</span></tt> - may be used to set additional headers
+on the response (such as a custom <tt class="docutils literal"><span class="pre">Server</span></tt> header)</li>
+</ul>
+</div>
+<div class="section" id="error-handling">
+<h2>Error Handling<a class="headerlink" href="#error-handling" title="Permalink to this headline">¶</a></h2>
+<p>There are three ways to return an error from a <a class="reference internal" href="web.html#cyclone.web.RequestHandler" title="cyclone.web.RequestHandler"><tt class="xref py py-obj docutils literal"><span class="pre">RequestHandler</span></tt></a>:</p>
+<ol class="arabic simple">
+<li>Manually call <a class="reference internal" href="web.html#cyclone.web.RequestHandler.set_status" title="cyclone.web.RequestHandler.set_status"><tt class="xref py py-obj docutils literal"><span class="pre">set_status</span></tt></a> and output the
+response body normally.</li>
+<li>Call <a class="reference internal" href="web.html#cyclone.web.RequestHandler.send_error" title="cyclone.web.RequestHandler.send_error"><tt class="xref py py-obj docutils literal"><span class="pre">send_error</span></tt></a>.  This discards
+any pending unflushed output and calls <a class="reference internal" href="web.html#cyclone.web.RequestHandler.write_error" title="cyclone.web.RequestHandler.write_error"><tt class="xref py py-obj docutils literal"><span class="pre">write_error</span></tt></a> to
+generate an error page.</li>
+<li>Raise an exception.  <a class="reference internal" href="web.html#cyclone.web.HTTPError" title="cyclone.web.HTTPError"><tt class="xref py py-obj docutils literal"><span class="pre">cyclone.web.HTTPError</span></tt></a> can be used to generate
+a specified status code; all other exceptions return a 500 status.
+The exception handler uses <a class="reference internal" href="web.html#cyclone.web.RequestHandler.send_error" title="cyclone.web.RequestHandler.send_error"><tt class="xref py py-obj docutils literal"><span class="pre">send_error</span></tt></a> and
+<a class="reference internal" href="web.html#cyclone.web.RequestHandler.write_error" title="cyclone.web.RequestHandler.write_error"><tt class="xref py py-obj docutils literal"><span class="pre">write_error</span></tt></a> to generate the error page.</li>
+</ol>
+<p>The default error page includes a stack trace in debug mode and a one-line
+description of the error (e.g. &#8220;500: Internal Server Error&#8221;) otherwise.
+To produce a custom error page, override <a class="reference internal" href="web.html#cyclone.web.RequestHandler.write_error" title="cyclone.web.RequestHandler.write_error"><tt class="xref py py-obj docutils literal"><span class="pre">RequestHandler.write_error</span></tt></a>.
+This method may produce output normally via methods such as
+<a class="reference internal" href="web.html#cyclone.web.RequestHandler.write" title="cyclone.web.RequestHandler.write"><tt class="xref py py-obj docutils literal"><span class="pre">write</span></tt></a> and <a class="reference internal" href="web.html#cyclone.web.RequestHandler.render" title="cyclone.web.RequestHandler.render"><tt class="xref py py-obj docutils literal"><span class="pre">render</span></tt></a>.  If the error was
+caused by an exception, an <tt class="docutils literal"><span class="pre">exc_info</span></tt> triple will be passed as a keyword
+argument (note that this exception is not guaranteed to be the current
+exception in <tt class="docutils literal"><span class="pre">sys.exc_info</span></tt>, so <tt class="docutils literal"><span class="pre">write_error</span></tt> must use e.g.
+<tt class="xref py py-obj docutils literal"><span class="pre">traceback.format_exception</span></tt> instead of <tt class="xref py py-obj docutils literal"><span class="pre">traceback.format_exc</span></tt>).</p>
+<p>In Tornado 2.0 and earlier, custom error pages were implemented by overriding
+<tt class="docutils literal"><span class="pre">RequestHandler.get_error_html</span></tt>, which returned the error page as a string
+instead of calling the normal output methods (and had slightly different
+semantics for exceptions).  This method is still supported, but it is
+deprecated and applications are encouraged to switch to
+<a class="reference internal" href="web.html#cyclone.web.RequestHandler.write_error" title="cyclone.web.RequestHandler.write_error"><tt class="xref py py-obj docutils literal"><span class="pre">RequestHandler.write_error</span></tt></a>.</p>
+</div>
+<div class="section" id="redirection">
+<h2>Redirection<a class="headerlink" href="#redirection" title="Permalink to this headline">¶</a></h2>
+<p>There are two main ways you can redirect requests in Cyclone:
+<tt class="docutils literal"><span class="pre">self.redirect</span></tt> and with the <tt class="docutils literal"><span class="pre">RedirectHandler</span></tt>.</p>
+<p>You can use <tt class="docutils literal"><span class="pre">self.redirect</span></tt> within a <tt class="docutils literal"><span class="pre">RequestHandler</span></tt> method (like
+<tt class="docutils literal"><span class="pre">get</span></tt>) to redirect users elsewhere. There is also an optional
+parameter <tt class="docutils literal"><span class="pre">permanent</span></tt> which you can use to indicate that the
+redirection is considered permanent.</p>
+<p>This triggers a <tt class="docutils literal"><span class="pre">301</span> <span class="pre">Moved</span> <span class="pre">Permanently</span></tt> HTTP status, which is useful
+for e.g. redirecting to a canonical URL for a page in an SEO-friendly
+manner.</p>
+<p>The default value of <tt class="docutils literal"><span class="pre">permanent</span></tt> is <tt class="docutils literal"><span class="pre">False</span></tt>, which is apt for things
+like redirecting users on successful POST requests.</p>
+<div class="highlight-none"><div class="highlight"><pre>self.redirect(&#39;/some-canonical-page&#39;, permanent=True)
+</pre></div>
+</div>
+<p><tt class="docutils literal"><span class="pre">RedirectHandler</span></tt> is available for your use when you initialize
+<tt class="docutils literal"><span class="pre">Application</span></tt>.</p>
+<p>For example, notice how we redirect to a longer download URL on this
+website:</p>
+<div class="highlight-none"><div class="highlight"><pre>application = cyclone.web.Application([
+    (r&quot;/([a-z]*)&quot;, ContentHandler),
+(r&quot;/static/file1&quot;, cyclone.web.RedirectHandler,
+                        dict(url=&quot;http://server/downloads/xyz/file1&quot;)),
+], **settings)
+</pre></div>
+</div>
+<p>The default <tt class="docutils literal"><span class="pre">RedirectHandler</span></tt> status code is
+<tt class="docutils literal"><span class="pre">301</span> <span class="pre">Moved</span> <span class="pre">Permanently</span></tt>, but to use <tt class="docutils literal"><span class="pre">302</span> <span class="pre">Found</span></tt> instead, set
+<tt class="docutils literal"><span class="pre">permanent</span></tt> to <tt class="docutils literal"><span class="pre">False</span></tt>.</p>
+<div class="highlight-none"><div class="highlight"><pre>application = cyclone.web.Application([
+    (r&quot;/foo&quot;, cyclone.web.RedirectHandler,
+                        {&quot;url&quot;:&quot;/bar&quot;, &quot;permanent&quot;:False}),
+], **settings)
+</pre></div>
+</div>
+<p>Note that the default value of <tt class="docutils literal"><span class="pre">permanent</span></tt> is different in
+<tt class="docutils literal"><span class="pre">self.redirect</span></tt> than in <tt class="docutils literal"><span class="pre">RedirectHandler</span></tt>. This should make some
+sense if you consider that <tt class="docutils literal"><span class="pre">self.redirect</span></tt> is used in your methods and
+is probably invoked by logic involving environment, authentication, or
+form submission, but <tt class="docutils literal"><span class="pre">RedirectHandler</span></tt> patterns are going to fire 100%
+of the time they match the request URL.</p>
+</div>
+<div class="section" id="templates">
+<h2>Templates<a class="headerlink" href="#templates" title="Permalink to this headline">¶</a></h2>
+<p>You can use any template language supported by Python, but Cyclone ships
+with its own templating language that is a lot faster and more flexible
+than many of the most popular templating systems out there. See the
+<a class="reference internal" href="template.html#module-cyclone.template" title="cyclone.template"><tt class="xref py py-obj docutils literal"><span class="pre">cyclone.template</span></tt></a> module documentation for complete documentation.</p>
+<p>A Cyclone template is just HTML (or any other text-based format) with
+Python control sequences and expressions embedded within the markup:</p>
+<div class="highlight-none"><div class="highlight"><pre>&lt;html&gt;
+   &lt;head&gt;
+      &lt;title&gt;{{ title }}&lt;/title&gt;
+   &lt;/head&gt;
+   &lt;body&gt;
+     &lt;ul&gt;
+       {% for item in items %}
+         &lt;li&gt;{{ escape(item) }}&lt;/li&gt;
+       {% end %}
+     &lt;/ul&gt;
+   &lt;/body&gt;
+ &lt;/html&gt;
+</pre></div>
+</div>
+<p>If you saved this template as &#8220;template.html&#8221; and put it in the same
+directory as your Python file, you could render this template with:</p>
+<div class="highlight-none"><div class="highlight"><pre>class MainHandler(cyclone.web.RequestHandler):
+    def get(self):
+        items = [&quot;Item 1&quot;, &quot;Item 2&quot;, &quot;Item 3&quot;]
+        self.render(&quot;template.html&quot;, title=&quot;My title&quot;, items=items)
+</pre></div>
+</div>
+<p>Cyclone templates support <em>control statements</em> and <em>expressions</em>.
+Control statements are surronded by <tt class="docutils literal"><span class="pre">{%</span></tt> and <tt class="docutils literal"><span class="pre">%}</span></tt>, e.g.,
+<tt class="docutils literal"><span class="pre">{%</span> <span class="pre">if</span> <span class="pre">len(items)</span> <span class="pre">&gt;</span> <span class="pre">2</span> <span class="pre">%}</span></tt>. Expressions are surrounded by <tt class="docutils literal"><span class="pre">{{</span></tt> and
+<tt class="docutils literal"><span class="pre">}}</span></tt>, e.g., <tt class="docutils literal"><span class="pre">{{</span> <span class="pre">items[0]</span> <span class="pre">}}</span></tt>.</p>
+<p>Control statements more or less map exactly to Python statements. We
+support <tt class="docutils literal"><span class="pre">if</span></tt>, <tt class="docutils literal"><span class="pre">for</span></tt>, <tt class="docutils literal"><span class="pre">while</span></tt>, and <tt class="docutils literal"><span class="pre">try</span></tt>, all of which are
+terminated with <tt class="docutils literal"><span class="pre">{%</span> <span class="pre">end</span> <span class="pre">%}</span></tt>. We also support <em>template inheritance</em>
+using the <tt class="docutils literal"><span class="pre">extends</span></tt> and <tt class="docutils literal"><span class="pre">block</span></tt> statements, which are described in
+detail in the documentation for the <a class="reference internal" href="template.html#module-cyclone.template" title="cyclone.template"><tt class="xref py py-obj docutils literal"><span class="pre">cyclone.template</span></tt></a>.</p>
+<p>Expressions can be any Python expression, including function calls.
+Template code is executed in a namespace that includes the following
+objects and functions (Note that this list applies to templates rendered
+using <tt class="docutils literal"><span class="pre">RequestHandler.render</span></tt> and <tt class="docutils literal"><span class="pre">render_string</span></tt>. If you&#8217;re using
+the <tt class="docutils literal"><span class="pre">template</span></tt> module directly outside of a <tt class="docutils literal"><span class="pre">RequestHandler</span></tt> many of
+these entries are not present).</p>
+<ul class="simple">
+<li><tt class="docutils literal"><span class="pre">escape</span></tt>: alias for <tt class="docutils literal"><span class="pre">cyclone.escape.xhtml_escape</span></tt></li>
+<li><tt class="docutils literal"><span class="pre">xhtml_escape</span></tt>: alias for <tt class="docutils literal"><span class="pre">cyclone.escape.xhtml_escape</span></tt></li>
+<li><tt class="docutils literal"><span class="pre">url_escape</span></tt>: alias for <tt class="docutils literal"><span class="pre">cyclone.escape.url_escape</span></tt></li>
+<li><tt class="docutils literal"><span class="pre">json_encode</span></tt>: alias for <tt class="docutils literal"><span class="pre">cyclone.escape.json_encode</span></tt></li>
+<li><tt class="docutils literal"><span class="pre">squeeze</span></tt>: alias for <tt class="docutils literal"><span class="pre">cyclone.escape.squeeze</span></tt></li>
+<li><tt class="docutils literal"><span class="pre">linkify</span></tt>: alias for <tt class="docutils literal"><span class="pre">cyclone.escape.linkify</span></tt></li>
+<li><tt class="docutils literal"><span class="pre">datetime</span></tt>: the Python <tt class="docutils literal"><span class="pre">datetime</span></tt> module</li>
+<li><tt class="docutils literal"><span class="pre">handler</span></tt>: the current <tt class="docutils literal"><span class="pre">RequestHandler</span></tt> object</li>
+<li><tt class="docutils literal"><span class="pre">request</span></tt>: alias for <tt class="docutils literal"><span class="pre">handler.request</span></tt></li>
+<li><tt class="docutils literal"><span class="pre">current_user</span></tt>: alias for <tt class="docutils literal"><span class="pre">handler.current_user</span></tt></li>
+<li><tt class="docutils literal"><span class="pre">locale</span></tt>: alias for <tt class="docutils literal"><span class="pre">handler.locale</span></tt></li>
+<li><tt class="docutils literal"><span class="pre">_</span></tt>: alias for <tt class="docutils literal"><span class="pre">handler.locale.translate</span></tt></li>
+<li><tt class="docutils literal"><span class="pre">static_url</span></tt>: alias for <tt class="docutils literal"><span class="pre">handler.static_url</span></tt></li>
+<li><tt class="docutils literal"><span class="pre">xsrf_form_html</span></tt>: alias for <tt class="docutils literal"><span class="pre">handler.xsrf_form_html</span></tt></li>
+<li><tt class="docutils literal"><span class="pre">reverse_url</span></tt>: alias for <tt class="docutils literal"><span class="pre">Application.reverse_url</span></tt></li>
+<li>All entries from the <tt class="docutils literal"><span class="pre">ui_methods</span></tt> and <tt class="docutils literal"><span class="pre">ui_modules</span></tt>
+<tt class="docutils literal"><span class="pre">Application</span></tt> settings</li>
+<li>Any keyword arguments passed to <tt class="docutils literal"><span class="pre">render</span></tt> or <tt class="docutils literal"><span class="pre">render_string</span></tt></li>
+</ul>
+<p>When you are building a real application, you are going to want to use
+all of the features of Cyclone templates, especially template
+inheritance. Read all about those features in the <a class="reference internal" href="template.html#module-cyclone.template" title="cyclone.template"><tt class="xref py py-obj docutils literal"><span class="pre">cyclone.template</span></tt></a>
+section (some features, including <tt class="docutils literal"><span class="pre">UIModules</span></tt> are implemented in the
+<tt class="docutils literal"><span class="pre">web</span></tt> module)</p>
+<p>Under the hood, Cyclone templates are translated directly to Python. The
+expressions you include in your template are copied verbatim into a
+Python function representing your template. We don&#8217;t try to prevent
+anything in the template language; we created it explicitly to provide
+the flexibility that other, stricter templating systems prevent.
+Consequently, if you write random stuff inside of your template
+expressions, you will get random Python errors when you execute the
+template.</p>
+<p>All template output is escaped by default, using the
+<tt class="docutils literal"><span class="pre">cyclone.escape.xhtml_escape</span></tt> function. This behavior can be changed
+globally by passing <tt class="docutils literal"><span class="pre">autoescape=None</span></tt> to the <tt class="docutils literal"><span class="pre">Application</span></tt> or
+<tt class="docutils literal"><span class="pre">TemplateLoader</span></tt> constructors, for a template file with the
+<tt class="docutils literal"><span class="pre">{%</span> <span class="pre">autoescape</span> <span class="pre">None</span> <span class="pre">%}</span></tt> directive, or for a single expression by
+replacing <tt class="docutils literal"><span class="pre">{{</span> <span class="pre">...</span> <span class="pre">}}</span></tt> with <tt class="docutils literal"><span class="pre">{%</span> <span class="pre">raw</span> <span class="pre">...%}</span></tt>. Additionally, in each of
+these places the name of an alternative escaping function may be used
+instead of <tt class="docutils literal"><span class="pre">None</span></tt>.</p>
+<p>Note that while Cyclone&#8217;s automatic escaping is helpful in avoiding
+XSS vulnerabilities, it is not sufficient in all cases.  Expressions
+that appear in certain locations, such as in Javascript or CSS, may need
+additional escaping.  Additionally, either care must be taken to always
+use double quotes and <tt class="docutils literal"><span class="pre">xhtml_escape</span></tt> in HTML attributes that may contain
+untrusted content, or a separate escaping function must be used for
+attributes (see e.g. <a class="reference external" href="http://wonko.com/post/html-escaping">http://wonko.com/post/html-escaping</a>)</p>
+</div>
+<div class="section" id="cookies-and-secure-cookies">
+<h2>Cookies and secure cookies<a class="headerlink" href="#cookies-and-secure-cookies" title="Permalink to this headline">¶</a></h2>
+<p>You can set cookies in the user&#8217;s browser with the <tt class="docutils literal"><span class="pre">set_cookie</span></tt>
+method:</p>
+<div class="highlight-none"><div class="highlight"><pre>class MainHandler(cyclone.web.RequestHandler):
+    def get(self):
+        if not self.get_cookie(&quot;mycookie&quot;):
+            self.set_cookie(&quot;mycookie&quot;, &quot;myvalue&quot;)
+            self.write(&quot;Your cookie was not set yet!&quot;)
+        else:
+            self.write(&quot;Your cookie was set!&quot;)
+</pre></div>
+</div>
+<p>Cookies are easily forged by malicious clients. If you need to set
+cookies to, e.g., save the user ID of the currently logged in user, you
+need to sign your cookies to prevent forgery. Cyclone supports this out
+of the box with the <tt class="docutils literal"><span class="pre">set_secure_cookie</span></tt> and <tt class="docutils literal"><span class="pre">get_secure_cookie</span></tt>
+methods. To use these methods, you need to specify a secret key named
+<tt class="docutils literal"><span class="pre">cookie_secret</span></tt> when you create your application. You can pass in
+application settings as keyword arguments to your application:</p>
+<div class="highlight-none"><div class="highlight"><pre>application = cyclone.web.Application([
+    (r&quot;/&quot;, MainHandler),
+], cookie_secret=&quot;__TODO:_GENERATE_YOUR_OWN_RANDOM_VALUE_HERE__&quot;)
+</pre></div>
+</div>
+<p>Signed cookies contain the encoded value of the cookie in addition to a
+timestamp and an <a class="reference external" href="http://en.wikipedia.org/wiki/HMAC">HMAC</a> signature.
+If the cookie is old or if the signature doesn&#8217;t match,
+<tt class="docutils literal"><span class="pre">get_secure_cookie</span></tt> will return <tt class="docutils literal"><span class="pre">None</span></tt> just as if the cookie isn&#8217;t
+set. The secure version of the example above:</p>
+<div class="highlight-none"><div class="highlight"><pre>class MainHandler(cyclone.web.RequestHandler):
+    def get(self):
+        if not self.get_secure_cookie(&quot;mycookie&quot;):
+            self.set_secure_cookie(&quot;mycookie&quot;, &quot;myvalue&quot;)
+            self.write(&quot;Your cookie was not set yet!&quot;)
+        else:
+            self.write(&quot;Your cookie was set!&quot;)
+</pre></div>
+</div>
+</div>
+<div class="section" id="id1">
+<h2>User authentication<a class="headerlink" href="#id1" title="Permalink to this headline">¶</a></h2>
+<p>The currently authenticated user is available in every request handler
+as <tt class="docutils literal"><span class="pre">self.current_user</span></tt>, and in every template as <tt class="docutils literal"><span class="pre">current_user</span></tt>. By
+default, <tt class="docutils literal"><span class="pre">current_user</span></tt> is <tt class="docutils literal"><span class="pre">None</span></tt>.</p>
+<p>To implement user authentication in your application, you need to
+override the <tt class="docutils literal"><span class="pre">get_current_user()</span></tt> method in your request handlers to
+determine the current user based on, e.g., the value of a cookie. Here
+is an example that lets users log into the application simply by
+specifying a nickname, which is then saved in a cookie:</p>
+<div class="highlight-none"><div class="highlight"><pre>class BaseHandler(cyclone.web.RequestHandler):
+    def get_current_user(self):
+        return self.get_secure_cookie(&quot;user&quot;)
+
+class MainHandler(BaseHandler):
+    def get(self):
+        if not self.current_user:
+            self.redirect(&quot;/login&quot;)
+            return
+        name = cyclone.escape.xhtml_escape(self.current_user)
+        self.write(&quot;Hello, &quot; + name)
+
+class LoginHandler(BaseHandler):
+    def get(self):
+        self.write(&#39;&lt;html&gt;&lt;body&gt;&lt;form action=&quot;/login&quot; method=&quot;post&quot;&gt;&#39;
+                   &#39;Name: &lt;input type=&quot;text&quot; name=&quot;name&quot;&gt;&#39;
+                   &#39;&lt;input type=&quot;submit&quot; value=&quot;Sign in&quot;&gt;&#39;
+                   &#39;&lt;/form&gt;&lt;/body&gt;&lt;/html&gt;&#39;)
+
+    def post(self):
+        self.set_secure_cookie(&quot;user&quot;, self.get_argument(&quot;name&quot;))
+        self.redirect(&quot;/&quot;)
+
+application = cyclone.web.Application([
+    (r&quot;/&quot;, MainHandler),
+    (r&quot;/login&quot;, LoginHandler),
+], cookie_secret=&quot;__TODO:_GENERATE_YOUR_OWN_RANDOM_VALUE_HERE__&quot;)
+</pre></div>
+</div>
+<p>You can require that the user be logged in using the <a class="reference external" href="http://www.python.org/dev/peps/pep-0318/">Python
+decorator</a>
+<tt class="docutils literal"><span class="pre">cyclone.web.authenticated</span></tt>. If a request goes to a method with this
+decorator, and the user is not logged in, they will be redirected to
+<tt class="docutils literal"><span class="pre">login_url</span></tt> (another application setting). The example above could be
+rewritten:</p>
+<div class="highlight-none"><div class="highlight"><pre>class MainHandler(BaseHandler):
+    @cyclone.web.authenticated
+    def get(self):
+        name = cyclone.escape.xhtml_escape(self.current_user)
+        self.write(&quot;Hello, &quot; + name)
+
+settings = {
+    &quot;cookie_secret&quot;: &quot;__TODO:_GENERATE_YOUR_OWN_RANDOM_VALUE_HERE__&quot;,
+    &quot;login_url&quot;: &quot;/login&quot;,
+}
+application = cyclone.web.Application([
+    (r&quot;/&quot;, MainHandler),
+    (r&quot;/login&quot;, LoginHandler),
+], **settings)
+</pre></div>
+</div>
+<p>If you decorate <tt class="docutils literal"><span class="pre">post()</span></tt> methods with the <tt class="docutils literal"><span class="pre">authenticated</span></tt> decorator,
+and the user is not logged in, the server will send a <tt class="docutils literal"><span class="pre">403</span></tt> response.</p>
+<p>Cyclone comes with built-in support for third-party authentication
+schemes like Google OAuth. See the <a class="reference internal" href="auth.html#module-cyclone.auth" title="cyclone.auth"><tt class="xref py py-obj docutils literal"><span class="pre">cyclone.auth</span></tt></a>
+for more details.</p>
+</div>
+<div class="section" id="cross-site-request-forgery-protection">
+<span id="xsrf"></span><h2>Cross-site request forgery protection<a class="headerlink" href="#cross-site-request-forgery-protection" title="Permalink to this headline">¶</a></h2>
+<p><a class="reference external" href="http://en.wikipedia.org/wiki/Cross-site_request_forgery">Cross-site request
+forgery</a>, or
+XSRF, is a common problem for personalized web applications. See the
+<a class="reference external" href="http://en.wikipedia.org/wiki/Cross-site_request_forgery">Wikipedia
+article</a> for
+more information on how XSRF works.</p>
+<p>The generally accepted solution to prevent XSRF is to cookie every user
+with an unpredictable value and include that value as an additional
+argument with every form submission on your site. If the cookie and the
+value in the form submission do not match, then the request is likely
+forged.</p>
+<p>Cyclone comes with built-in XSRF protection. To include it in your site,
+include the application setting <tt class="docutils literal"><span class="pre">xsrf_cookies</span></tt>:</p>
+<div class="highlight-none"><div class="highlight"><pre>settings = {
+    &quot;cookie_secret&quot;: &quot;__TODO:_GENERATE_YOUR_OWN_RANDOM_VALUE_HERE__&quot;,
+    &quot;login_url&quot;: &quot;/login&quot;,
+    &quot;xsrf_cookies&quot;: True,
+}
+application = cyclone.web.Application([
+    (r&quot;/&quot;, MainHandler),
+    (r&quot;/login&quot;, LoginHandler),
+], **settings)
+</pre></div>
+</div>
+<p>If <tt class="docutils literal"><span class="pre">xsrf_cookies</span></tt> is set, the Cyclone web application will set the
+<tt class="docutils literal"><span class="pre">_xsrf</span></tt> cookie for all users and reject all <tt class="docutils literal"><span class="pre">POST</span></tt>, <tt class="docutils literal"><span class="pre">PUT</span></tt>, and
+<tt class="docutils literal"><span class="pre">DELETE</span></tt> requests that do not contain a correct <tt class="docutils literal"><span class="pre">_xsrf</span></tt> value. If
+you turn this setting on, you need to instrument all forms that submit
+via <tt class="docutils literal"><span class="pre">POST</span></tt> to contain this field. You can do this with the special
+function <tt class="docutils literal"><span class="pre">xsrf_form_html()</span></tt>, available in all templates:</p>
+<div class="highlight-none"><div class="highlight"><pre>&lt;form action=&quot;/new_message&quot; method=&quot;post&quot;&gt;
+  {% module xsrf_form_html() %}
+  &lt;input type=&quot;text&quot; name=&quot;message&quot;/&gt;
+  &lt;input type=&quot;submit&quot; value=&quot;Post&quot;/&gt;
+&lt;/form&gt;
+</pre></div>
+</div>
+<p>If you submit AJAX <tt class="docutils literal"><span class="pre">POST</span></tt> requests, you will also need to instrument
+your JavaScript to include the <tt class="docutils literal"><span class="pre">_xsrf</span></tt> value with each request. This
+is the <a class="reference external" href="http://jquery.com/">jQuery</a> function used by FriendFeed for
+AJAX <tt class="docutils literal"><span class="pre">POST</span></tt> requests that automatically adds the <tt class="docutils literal"><span class="pre">_xsrf</span></tt> value to
+all requests:</p>
+<div class="highlight-none"><div class="highlight"><pre>function getCookie(name) {
+    var r = document.cookie.match(&quot;\\b&quot; + name + &quot;=([^;]*)\\b&quot;);
+    return r ? r[1] : undefined;
+}
+
+jQuery.postJSON = function(url, args, callback) {
+    args._xsrf = getCookie(&quot;_xsrf&quot;);
+    $.ajax({url: url, data: $.param(args), dataType: &quot;text&quot;, type: &quot;POST&quot;,
+        success: function(response) {
+        callback(eval(&quot;(&quot; + response + &quot;)&quot;));
+    }});
+};
+</pre></div>
+</div>
+<p>For <tt class="docutils literal"><span class="pre">PUT</span></tt> and <tt class="docutils literal"><span class="pre">DELETE</span></tt> requests (as well as <tt class="docutils literal"><span class="pre">POST</span></tt> requests that
+do not use form-encoded arguments), the XSRF token may also be passed
+via an HTTP header named <tt class="docutils literal"><span class="pre">X-XSRFToken</span></tt>.  The XSRF cookie is normally
+set when <tt class="docutils literal"><span class="pre">xsrf_form_html</span></tt> is used, but in a pure-Javascript application
+that does not use any regular forms you may need to access
+<tt class="docutils literal"><span class="pre">self.xsrf_token</span></tt> manually (just reading the property is enough to
+set the cookie as a side effect).</p>
+<p>If you need to customize XSRF behavior on a per-handler basis, you can
+override <tt class="docutils literal"><span class="pre">RequestHandler.check_xsrf_cookie()</span></tt>. For example, if you
+have an API whose authentication does not use cookies, you may want to
+disable XSRF protection by making <tt class="docutils literal"><span class="pre">check_xsrf_cookie()</span></tt> do nothing.
+However, if you support both cookie and non-cookie-based authentication,
+it is important that XSRF protection be used whenever the current
+request is authenticated with a cookie.</p>
+</div>
+<div class="section" id="static-files-and-aggressive-file-caching">
+<h2>Static files and aggressive file caching<a class="headerlink" href="#static-files-and-aggressive-file-caching" title="Permalink to this headline">¶</a></h2>
+<p>You can serve static files from Cyclone by specifying the
+<tt class="docutils literal"><span class="pre">static_path</span></tt> setting in your application:</p>
+<div class="highlight-none"><div class="highlight"><pre>settings = {
+    &quot;static_path&quot;: os.path.join(os.path.dirname(__file__), &quot;static&quot;),
+    &quot;cookie_secret&quot;: &quot;__TODO:_GENERATE_YOUR_OWN_RANDOM_VALUE_HERE__&quot;,
+    &quot;login_url&quot;: &quot;/login&quot;,
+    &quot;xsrf_cookies&quot;: True,
+}
+application = cyclone.web.Application([
+    (r&quot;/&quot;, MainHandler),
+    (r&quot;/login&quot;, LoginHandler),
+    (r&quot;/(apple-touch-icon\.png)&quot;, cyclone.web.StaticFileHandler,
+     dict(path=settings[&#39;static_path&#39;])),
+], **settings)
+</pre></div>
+</div>
+<p>This setting will automatically make all requests that start with
+<tt class="docutils literal"><span class="pre">/static/</span></tt> serve from that static directory, e.g.,
+<a class="reference external" href="http://localhost:8888/static/foo.png">http://localhost:8888/static/foo.png</a>
+will serve the file <tt class="docutils literal"><span class="pre">foo.png</span></tt> from the specified static directory. We
+also automatically serve <tt class="docutils literal"><span class="pre">/robots.txt</span></tt> and <tt class="docutils literal"><span class="pre">/favicon.ico</span></tt> from the
+static directory (even though they don&#8217;t start with the <tt class="docutils literal"><span class="pre">/static/</span></tt>
+prefix).</p>
+<p>In the above settings, we have explicitly configured Cyclone to serve
+<tt class="docutils literal"><span class="pre">apple-touch-icon.png</span></tt> “from” the root with the <tt class="docutils literal"><span class="pre">StaticFileHandler</span></tt>,
+though it is physically in the static file directory. (The capturing
+group in that regular expression is necessary to tell
+<tt class="docutils literal"><span class="pre">StaticFileHandler</span></tt> the requested filename; capturing groups are
+passed to handlers as method arguments.) You could do the same thing to
+serve e.g. <tt class="docutils literal"><span class="pre">sitemap.xml</span></tt> from the site root. Of course, you can also
+avoid faking a root <tt class="docutils literal"><span class="pre">apple-touch-icon.png</span></tt> by using the appropriate
+<tt class="docutils literal"><span class="pre">&lt;link</span> <span class="pre">/&gt;</span></tt> tag in your HTML.</p>
+<p>To improve performance, it is generally a good idea for browsers to
+cache static resources aggressively so browsers won&#8217;t send unnecessary
+<tt class="docutils literal"><span class="pre">If-Modified-Since</span></tt> or <tt class="docutils literal"><span class="pre">Etag</span></tt> requests that might block the
+rendering of the page. Cyclone supports this out of the box with <em>static
+content versioning</em>.</p>
+<p>To use this feature, use the <tt class="docutils literal"><span class="pre">static_url()</span></tt> method in your templates
+rather than typing the URL of the static file directly in your HTML:</p>
+<div class="highlight-none"><div class="highlight"><pre>&lt;html&gt;
+   &lt;head&gt;
+      &lt;title&gt;FriendFeed - {{ _(&quot;Home&quot;) }}&lt;/title&gt;
+   &lt;/head&gt;
+   &lt;body&gt;
+     &lt;div&gt;&lt;img src=&quot;{{ static_url(&quot;images/logo.png&quot;) }}&quot;/&gt;&lt;/div&gt;
+   &lt;/body&gt;
+ &lt;/html&gt;
+</pre></div>
+</div>
+<p>The <tt class="docutils literal"><span class="pre">static_url()</span></tt> function will translate that relative path to a URI
+that looks like <tt class="docutils literal"><span class="pre">/static/images/logo.png?v=aae54</span></tt>. The <tt class="docutils literal"><span class="pre">v</span></tt> argument
+is a hash of the content in <tt class="docutils literal"><span class="pre">logo.png</span></tt>, and its presence makes the
+Cyclone server send cache headers to the user&#8217;s browser that will make
+the browser cache the content indefinitely.</p>
+<p>Since the <tt class="docutils literal"><span class="pre">v</span></tt> argument is based on the content of the file, if you
+update a file and restart your server, it will start sending a new <tt class="docutils literal"><span class="pre">v</span></tt>
+value, so the user&#8217;s browser will automatically fetch the new file. If
+the file&#8217;s contents don&#8217;t change, the browser will continue to use a
+locally cached copy without ever checking for updates on the server,
+significantly improving rendering performance.</p>
+<p>In production, you probably want to serve static files from a more
+optimized static file server like <a class="reference external" href="http://nginx.net/">nginx</a>. You can
+configure most any web server to support these caching semantics. Here
+is the nginx configuration used by FriendFeed:</p>
+<div class="highlight-none"><div class="highlight"><pre>location /static/ {
+    root /var/friendfeed/static;
+    if ($query_string) {
+        expires max;
+    }
+ }
+</pre></div>
+</div>
+</div>
+<div class="section" id="localization">
+<h2>Localization<a class="headerlink" href="#localization" title="Permalink to this headline">¶</a></h2>
+<p>The locale of the current user (whether they are logged in or not) is
+always available as <tt class="docutils literal"><span class="pre">self.locale</span></tt> in the request handler and as
+<tt class="docutils literal"><span class="pre">locale</span></tt> in templates. The name of the locale (e.g., <tt class="docutils literal"><span class="pre">en_US</span></tt>) is
+available as <tt class="docutils literal"><span class="pre">locale.name</span></tt>, and you can translate strings with the
+<tt class="docutils literal"><span class="pre">locale.translate</span></tt> method. Templates also have the global function
+call <tt class="docutils literal"><span class="pre">_()</span></tt> available for string translation. The translate function
+has two forms:</p>
+<div class="highlight-none"><div class="highlight"><pre>_(&quot;Translate this string&quot;)
+</pre></div>
+</div>
+<p>which translates the string directly based on the current locale, and</p>
+<div class="highlight-none"><div class="highlight"><pre>_(&quot;A person liked this&quot;, &quot;%(num)d people liked this&quot;,
+  len(people)) % {&quot;num&quot;: len(people)}
+</pre></div>
+</div>
+<p>which translates a string that can be singular or plural based on the
+value of the third argument. In the example above, a translation of the
+first string will be returned if <tt class="docutils literal"><span class="pre">len(people)</span></tt> is <tt class="docutils literal"><span class="pre">1</span></tt>, or a
+translation of the second string will be returned otherwise.</p>
+<p>The most common pattern for translations is to use Python named
+placeholders for variables (the <tt class="docutils literal"><span class="pre">%(num)d</span></tt> in the example above) since
+placeholders can move around on translation.</p>
+<p>Here is a properly localized template:</p>
+<div class="highlight-none"><div class="highlight"><pre>&lt;html&gt;
+   &lt;head&gt;
+      &lt;title&gt;FriendFeed - {{ _(&quot;Sign in&quot;) }}&lt;/title&gt;
+   &lt;/head&gt;
+   &lt;body&gt;
+     &lt;form action=&quot;{{ request.path }}&quot; method=&quot;post&quot;&gt;
+       &lt;div&gt;{{ _(&quot;Username&quot;) }} &lt;input type=&quot;text&quot; name=&quot;username&quot;/&gt;&lt;/div&gt;
+       &lt;div&gt;{{ _(&quot;Password&quot;) }} &lt;input type=&quot;password&quot; name=&quot;password&quot;/&gt;&lt;/div&gt;
+       &lt;div&gt;&lt;input type=&quot;submit&quot; value=&quot;{{ _(&quot;Sign in&quot;) }}&quot;/&gt;&lt;/div&gt;
+       {% module xsrf_form_html() %}
+     &lt;/form&gt;
+   &lt;/body&gt;
+ &lt;/html&gt;
+</pre></div>
+</div>
+<p>By default, we detect the user&#8217;s locale using the <tt class="docutils literal"><span class="pre">Accept-Language</span></tt>
+header sent by the user&#8217;s browser. We choose <tt class="docutils literal"><span class="pre">en_US</span></tt> if we can&#8217;t find
+an appropriate <tt class="docutils literal"><span class="pre">Accept-Language</span></tt> value. If you let user&#8217;s set their
+locale as a preference, you can override this default locale selection
+by overriding <tt class="docutils literal"><span class="pre">get_user_locale</span></tt> in your request handler:</p>
+<div class="highlight-none"><div class="highlight"><pre>class BaseHandler(cyclone.web.RequestHandler):
+    def get_current_user(self):
+        user_id = self.get_secure_cookie(&quot;user&quot;)
+        if not user_id: return None
+        return self.backend.get_user_by_id(user_id)
+
+    def get_user_locale(self):
+        if &quot;locale&quot; not in self.current_user.prefs:
+            # Use the Accept-Language header
+            return None
+        return self.current_user.prefs[&quot;locale&quot;]
+</pre></div>
+</div>
+<p>If <tt class="docutils literal"><span class="pre">get_user_locale</span></tt> returns <tt class="docutils literal"><span class="pre">None</span></tt>, we fall back on the
+<tt class="docutils literal"><span class="pre">Accept-Language</span></tt> header.</p>
+<p>You can load all the translations for your application using the
+<tt class="docutils literal"><span class="pre">cyclone.locale.load_translations</span></tt> method. It takes in the name of the
+directory which should contain CSV files named after the locales whose
+translations they contain, e.g., <tt class="docutils literal"><span class="pre">es_GT.csv</span></tt> or <tt class="docutils literal"><span class="pre">fr_CA.csv</span></tt>. The
+method loads all the translations from those CSV files and infers the
+list of supported locales based on the presence of each CSV file. You
+typically call this method once in the <tt class="docutils literal"><span class="pre">main()</span></tt> method of your server:</p>
+<div class="highlight-none"><div class="highlight"><pre>def main():
+    cyclone.locale.load_translations(
+        os.path.join(os.path.dirname(__file__), &quot;translations&quot;))
+    start_server()
+</pre></div>
+</div>
+<p>You can get the list of supported locales in your application with
+<tt class="docutils literal"><span class="pre">cyclone.locale.get_supported_locales()</span></tt>. The user&#8217;s locale is chosen
+to be the closest match based on the supported locales. For example, if
+the user&#8217;s locale is <tt class="docutils literal"><span class="pre">es_GT</span></tt>, and the <tt class="docutils literal"><span class="pre">es</span></tt> locale is supported,
+<tt class="docutils literal"><span class="pre">self.locale</span></tt> will be <tt class="docutils literal"><span class="pre">es</span></tt> for that request. We fall back on
+<tt class="docutils literal"><span class="pre">en_US</span></tt> if no close match can be found.</p>
+<p>See the <a class="reference internal" href="locale.html#module-cyclone.locale" title="cyclone.locale"><tt class="xref py py-obj docutils literal"><span class="pre">cyclone.locale</span></tt></a> documentation for detailed information on the CSV
+format and other localization methods.</p>
+</div>
+<div class="section" id="ui-modules">
+<span id="id2"></span><h2>UI modules<a class="headerlink" href="#ui-modules" title="Permalink to this headline">¶</a></h2>
+<p>Cyclone inherits <em>UI modules</em> from Tornado. However, there&#8217;s currently no way
+to support database connections and other forms of network intractivity from
+within the these modules, making them a bit unuseful.</p>
+<p>A better solution for this is still in the works and will eventually make
+it to the framework one day.</p>
+</div>
+<div class="section" id="non-blocking-asynchronous-requests">
+<h2>Non-blocking, asynchronous requests<a class="headerlink" href="#non-blocking-asynchronous-requests" title="Permalink to this headline">¶</a></h2>
+<p>When a request handler is executed, the request is automatically finished.
+Since Cyclone uses a non-blocking I/O style, you can override this default
+behavior if you want a request to remain open after the main request handler
+method returns using the <tt class="docutils literal"><span class="pre">cyclone.web.asynchronous</span></tt> decorator.</p>
+<p>When you use this decorator, it is your responsibility to call
+<tt class="docutils literal"><span class="pre">self.finish()</span></tt> to finish the HTTP request, or the user&#8217;s browser will
+simply hang:</p>
+<div class="highlight-none"><div class="highlight"><pre>class MainHandler(cyclone.web.RequestHandler):
+    @cyclone.web.asynchronous
+    def get(self):
+        self.write(&quot;Hello, world&quot;)
+        self.finish()
+</pre></div>
+</div>
+<p>Here&#8217;s an example:</p>
+<div class="highlight-none"><div class="highlight"><pre>from twisted.internet import reactor
+
+class MyRequestHandler(web.RequestHandler):
+    @web.asynchronous
+    def get(self):
+        self.write(&quot;Processing your request...&quot;)
+        reactor.callLater(5, self.do_something)
+
+    def do_something(self):
+        self.write(&quot;done!&quot;)
+        self.finish()
+</pre></div>
+</div>
+<p>When <tt class="docutils literal"><span class="pre">get()</span></tt> returns, the request has not finished. When the reactor calls
+<tt class="docutils literal"><span class="pre">do_something()</span></tt>, the request is still open, and the response is finally
+flushed to the client with the call to <tt class="docutils literal"><span class="pre">self.finish()</span></tt>.</p>
+<p>For a more advanced asynchronous example, take a look at the <a class="reference external" href="https://github.com/fiorix/cyclone/tree/master/demos/chat">chat
+example application</a>, which
+implements an AJAX chat room using <a class="reference external" href="http://en.wikipedia.org/wiki/Push_technology#Long_polling">long polling</a>.  Users
+of long polling may want to override <tt class="docutils literal"><span class="pre">on_connection_close()</span></tt> to
+clean up after the client closes the connection (but see that method&#8217;s
+docstring for caveats).</p>
+</div>
+<div class="section" id="asynchronous-http-clients">
+<h2>Asynchronous HTTP clients<a class="headerlink" href="#asynchronous-http-clients" title="Permalink to this headline">¶</a></h2>
+<p>Cyclone ships with an HTTP client based on Twisted&#8217;s Agent. It also supports
+the native <a class="reference external" href="http://twistedmatrix.com/documents/current/api/twisted.web.client.getPage.html">twisted.web.getPage</a>.</p>
+<p>Example:</p>
+<div class="highlight-none"><div class="highlight"><pre>from twisted.web.client import getPage
+
+class MyRequestHandler(web.RequestHandler):
+    @web.asynchronous
+    def get(self):
+        deferred = getPage(&quot;http://freegeoip.net/json&quot;)
+        deferred.addCallback(self.on_response)
+
+    def on_response(self, data):
+        self.set_headers(&quot;Content-Type&quot;, &quot;application/json&quot;)
+        self.write(data)
+        self.finish()
+</pre></div>
+</div>
+<p>Our client returns not only the content, but also the response status and
+headers:</p>
+<div class="highlight-none"><div class="highlight"><pre>from cyclone.httpclient import fetch
+
+class MyRequestHandler(web.RequestHandler):
+    @web.asynchronous
+    def get(self):
+        deferred = fetch(&quot;http://freegeoip.net/json&quot;)
+        deferred.addCallback(self.on_response)
+
+    def on_response(self, response):
+        if response.code == 200:
+            content_type = response.headers.get(&quot;Content-Type&quot;)
+            self.set_headers(&quot;Content-Type&quot;, content_type or &quot;text/plain&quot;)
+            self.write(response.body)
+            self.finish()
+        else:
+            raise web.HTTPError(response.code)
+</pre></div>
+</div>
+</div>
+<div class="section" id="third-party-authentication">
+<h2>Third party authentication<a class="headerlink" href="#third-party-authentication" title="Permalink to this headline">¶</a></h2>
+<p>Cyclone&#8217;s <tt class="docutils literal"><span class="pre">auth</span></tt> module implements the authentication and authorization
+protocols for a number of the most popular sites on the web, including
+Google/Gmail, Facebook, Twitter, and FriendFeed.</p>
+<p>The module includes methods to log users in via these sites and, where
+applicable, methods to authorize access to the service so you can, e.g.,
+download a user&#8217;s address book or publish a Twitter message on their
+behalf.</p>
+<p>Here is an example handler that uses Google for authentication, saving
+the Google credentials in a cookie for later access:</p>
+<div class="highlight-none"><div class="highlight"><pre>class GoogleHandler(cyclone.web.RequestHandler, cyclone.auth.GoogleMixin):
+    @cyclone.web.asynchronous
+    def get(self):
+        if self.get_argument(&quot;openid.mode&quot;, None):
+            self.get_authenticated_user(self._on_auth)
+            return
+        self.authenticate_redirect()
+
+    def _on_auth(self, user):
+        if not user:
+            self.authenticate_redirect()
+            return
+        # Save the user with, e.g., set_secure_cookie()
+</pre></div>
+</div>
+<p>See the <a class="reference internal" href="auth.html#module-cyclone.auth" title="cyclone.auth"><tt class="xref py py-obj docutils literal"><span class="pre">cyclone.auth</span></tt></a> module documentation for more details.</p>
+</div>
+<div class="section" id="debug-mode-and-automatic-reloading">
+<span id="debug-mode"></span><h2>Debug mode and automatic reloading<a class="headerlink" href="#debug-mode-and-automatic-reloading" title="Permalink to this headline">¶</a></h2>
+<p>If you pass <tt class="docutils literal"><span class="pre">debug=True</span></tt> to the <tt class="docutils literal"><span class="pre">Application</span></tt> constructor, the app
+will be run in debug mode. In this mode, templates will not be cached
+and the app will watch for changes to its source files and reload itself
+when anything changes. This reduces the need to manually restart the
+server during development. However, certain failures (such as syntax
+errors at import time) can still take the server down in a way that
+debug mode cannot currently recover from.</p>
+</div>
+<div class="section" id="running-cyclone-in-production">
+<h2>Running Cyclone in production<a class="headerlink" href="#running-cyclone-in-production" title="Permalink to this headline">¶</a></h2>
+<p>We recommend <a class="reference external" href="http://nginx.net/">nginx</a> as a load balancer and static file
+server. Run multiple instances of the Cyclone web server on multiple frontend
+machines. Ideally, run one Cyclone frontend per core on the machine (or even
+more depending on utilization).</p>
+<p>When running behind a load balancer like nginx, it is recommended to
+set <tt class="docutils literal"><span class="pre">xheaders=True</span></tt> to the <tt class="docutils literal"><span class="pre">Application</span></tt> constructor. This will tell
+Cyclone to use headers like <tt class="docutils literal"><span class="pre">X-Real-IP</span></tt> to get the user&#8217;s IP address
+instead of attributing all traffic to the balancer&#8217;s IP address.</p>
+<p>This is a barebones nginx config file that is structurally similar to
+the one used by FriendFeed. It assumes nginx and the Cyclone servers
+are running on the same machine, and the four Cyclone servers are
+running on ports 8000 - 8003:</p>
+<div class="highlight-none"><div class="highlight"><pre>user nginx;
+worker_processes 1;
+
+error_log /var/log/nginx/error.log;
+pid /var/run/nginx.pid;
+
+events {
+    worker_connections 1024;
+    use epoll;
+}
+
+http {
+    # Enumerate all the Cyclone servers here
+    upstream frontends {
+        server 127.0.0.1:8000;
+        server 127.0.0.1:8001;
+        server 127.0.0.1:8002;
+        server 127.0.0.1:8003;
+    }
+
+    include /etc/nginx/mime.types;
+    default_type application/octet-stream;
+
+    access_log /var/log/nginx/access.log;
+
+    keepalive_timeout 65;
+    proxy_read_timeout 200;
+    sendfile on;
+    tcp_nopush on;
+    tcp_nodelay on;
+    gzip on;
+    gzip_min_length 1000;
+    gzip_proxied any;
+    gzip_types text/plain text/html text/css text/xml
+               application/x-javascript application/xml
+               application/atom+xml text/javascript;
+
+    # Only retry if there was a communication error, not a timeout
+    # on the Cyclone server (to avoid propagating &quot;queries of death&quot;
+    # to all frontends)
+    proxy_next_upstream error;
+
+    server {
+        listen 80;
+
+        # Allow file uploads
+        client_max_body_size 50M;
+
+        location ^~ /static/ {
+            root /var/www;
+            if ($query_string) {
+                expires max;
+            }
+        }
+        location = /favicon.ico {
+            rewrite (.*) /static/favicon.ico;
+        }
+        location = /robots.txt {
+            rewrite (.*) /static/robots.txt;
+        }
+
+        location / {
+            proxy_pass_header Server;
+            proxy_set_header Host $http_host;
+            proxy_redirect false;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Scheme $scheme;
+            proxy_pass http://frontends;
+        }
+    }
+}
+</pre></div>
+</div>
+</div>
+</div>
+
+
+          </div>
+        </div>
+      </div>
+      <div class="sphinxsidebar">
+        <div class="sphinxsidebarwrapper">
+  <h3><a href="index.html">Table Of Contents</a></h3>
+  <ul>
+<li><a class="reference internal" href="#">Overview</a><ul>
+<li><a class="reference internal" href="#request-handlers-and-arguments">Request handlers and arguments</a></li>
+<li><a class="reference internal" href="#overriding-requesthandler-methods">Overriding RequestHandler methods</a></li>
+<li><a class="reference internal" href="#error-handling">Error Handling</a></li>
+<li><a class="reference internal" href="#redirection">Redirection</a></li>
+<li><a class="reference internal" href="#templates">Templates</a></li>
+<li><a class="reference internal" href="#cookies-and-secure-cookies">Cookies and secure cookies</a></li>
+<li><a class="reference internal" href="#id1">User authentication</a></li>
+<li><a class="reference internal" href="#cross-site-request-forgery-protection">Cross-site request forgery protection</a></li>
+<li><a class="reference internal" href="#static-files-and-aggressive-file-caching">Static files and aggressive file caching</a></li>
+<li><a class="reference internal" href="#localization">Localization</a></li>
+<li><a class="reference internal" href="#ui-modules">UI modules</a></li>
+<li><a class="reference internal" href="#non-blocking-asynchronous-requests">Non-blocking, asynchronous requests</a></li>
+<li><a class="reference internal" href="#asynchronous-http-clients">Asynchronous HTTP clients</a></li>
+<li><a class="reference internal" href="#third-party-authentication">Third party authentication</a></li>
+<li><a class="reference internal" href="#debug-mode-and-automatic-reloading">Debug mode and automatic reloading</a></li>
+<li><a class="reference internal" href="#running-cyclone-in-production">Running Cyclone in production</a></li>
+</ul>
+</li>
+</ul>
+
+  <h4>Previous topic</h4>
+  <p class="topless"><a href="index.html"
+                        title="previous chapter">Cyclone documentation</a></p>
+  <h4>Next topic</h4>
+  <p class="topless"><a href="deferreds.html"
+                        title="next chapter">Deferreds and inline callbacks</a></p>
+  <h3>This Page</h3>
+  <ul class="this-page-menu">
+    <li><a href="_sources/overview.txt"
+           rel="nofollow">Show Source</a></li>
+  </ul>
+<div id="searchbox" style="display: none">
+  <h3>Quick search</h3>
+    <form class="search" action="search.html" method="get">
+      <input type="text" name="q" />
+      <input type="submit" value="Go" />
+      <input type="hidden" name="check_keywords" value="yes" />
+      <input type="hidden" name="area" value="default" />
+    </form>
+    <p class="searchtip" style="font-size: 90%">
+    Enter search terms or a module, class or function name.
+    </p>
+</div>
+<script type="text/javascript">$('#searchbox').show(0);</script>
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="related">
+      <h3>Navigation</h3>
+      <ul>
+        <li class="right" style="margin-right: 10px">
+          <a href="genindex.html" title="General Index"
+             >index</a></li>
+        <li class="right" >
+          <a href="py-modindex.html" title="Python Module Index"
+             >modules</a> |</li>
+        <li class="right" >
+          <a href="deferreds.html" title="Deferreds and inline callbacks"
+             >next</a> |</li>
+        <li class="right" >
+          <a href="index.html" title="Cyclone documentation"
+             >previous</a> |</li>
+        <li><a href="index.html">cyclone git-2013042301 documentation</a> &raquo;</li> 
+      </ul>
+    </div>
+    <div class="footer">
+        &copy; Copyright 2013, Alexandre Fiori.
+      Created using <a href="http://sphinx.pocoo.org/">Sphinx</a> 1.1.3.
+    </div>
+  </body>
+</html>

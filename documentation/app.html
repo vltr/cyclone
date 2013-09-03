@@ -1,0 +1,148 @@
+
+
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"
+  "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+
+
+<html xmlns="http://www.w3.org/1999/xhtml">
+  <head>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+    
+    <title>cyclone.app — Command-line line tool &mdash; cyclone git-2013042301 documentation</title>
+    
+    <link rel="stylesheet" href="_static/sphinx.css" type="text/css" />
+    <link rel="stylesheet" href="_static/pygments.css" type="text/css" />
+    
+    <script type="text/javascript">
+      var DOCUMENTATION_OPTIONS = {
+        URL_ROOT:    '',
+        VERSION:     'git-2013042301',
+        COLLAPSE_INDEX: false,
+        FILE_SUFFIX: '.html',
+        HAS_SOURCE:  true
+      };
+    </script>
+    <script type="text/javascript" src="_static/jquery.js"></script>
+    <script type="text/javascript" src="_static/underscore.js"></script>
+    <script type="text/javascript" src="_static/doctools.js"></script>
+    <link rel="top" title="cyclone git-2013042301 documentation" href="index.html" />
+    <link rel="up" title="Development server and production" href="devserver.html" />
+    <link rel="next" title="Core web framework" href="webframework.html" />
+    <link rel="prev" title="Development server and production" href="devserver.html" /> 
+  </head>
+  <body>
+    <div class="related">
+      <h3>Navigation</h3>
+      <ul>
+        <li class="right" style="margin-right: 10px">
+          <a href="genindex.html" title="General Index"
+             accesskey="I">index</a></li>
+        <li class="right" >
+          <a href="py-modindex.html" title="Python Module Index"
+             >modules</a> |</li>
+        <li class="right" >
+          <a href="webframework.html" title="Core web framework"
+             accesskey="N">next</a> |</li>
+        <li class="right" >
+          <a href="devserver.html" title="Development server and production"
+             accesskey="P">previous</a> |</li>
+        <li><a href="index.html">cyclone git-2013042301 documentation</a> &raquo;</li>
+          <li><a href="devserver.html" accesskey="U">Development server and production</a> &raquo;</li> 
+      </ul>
+    </div>  
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          <div class="body">
+            
+  <div class="section" id="module-cyclone.app">
+<span id="cyclone-app-command-line-line-tool"></span><h1><tt class="docutils literal"><span class="pre">cyclone.app</span></tt> &#8212; Command-line line tool<a class="headerlink" href="#module-cyclone.app" title="Permalink to this headline">¶</a></h1>
+<p>Command-line tool for creating cyclone applications out of the box.</p>
+<div class="highlight-none"><div class="highlight"><pre>usage: cyclone app [options]
+Options:
+ -h --help              Show this help.
+ -n --new               Dumps a sample server code to stdout.
+ -p --project=NAME      Create new cyclone project.
+ -g --git               Use in conjunction with -p to make it a git repository.
+ -m --modname=NAME      Use another name for the module [default: project_name]
+ -v --version=VERSION   Set project version [default: 0.1]
+ -s --set-pkg-version   Set version on package name [default: False]
+ -t --target=PATH       Set path where project is created [default: current directory]
+ -l --license=FILE      Append the following license file [default: Apache 2]
+ -a --appskel=SKEL      Set the application skeleton [default: default]
+
+SKEL:
+  default              Basic cyclone project
+  signup               Basic sign up/in/out, password reset, etc
+  foreman              Create a foreman based project (suited to run on heroku and other PaaS)
+
+Examples:
+ For a simple hello world:
+ $ cyclone app -n &gt; hello.py
+
+ For a project that requires sign up:
+ $ cyclone app --project=foobar --appskel=signup
+</pre></div>
+</div>
+</div>
+
+
+          </div>
+        </div>
+      </div>
+      <div class="sphinxsidebar">
+        <div class="sphinxsidebarwrapper">
+  <h4>Previous topic</h4>
+  <p class="topless"><a href="devserver.html"
+                        title="previous chapter">Development server and production</a></p>
+  <h4>Next topic</h4>
+  <p class="topless"><a href="webframework.html"
+                        title="next chapter">Core web framework</a></p>
+  <h3>This Page</h3>
+  <ul class="this-page-menu">
+    <li><a href="_sources/app.txt"
+           rel="nofollow">Show Source</a></li>
+  </ul>
+<div id="searchbox" style="display: none">
+  <h3>Quick search</h3>
+    <form class="search" action="search.html" method="get">
+      <input type="text" name="q" />
+      <input type="submit" value="Go" />
+      <input type="hidden" name="check_keywords" value="yes" />
+      <input type="hidden" name="area" value="default" />
+    </form>
+    <p class="searchtip" style="font-size: 90%">
+    Enter search terms or a module, class or function name.
+    </p>
+</div>
+<script type="text/javascript">$('#searchbox').show(0);</script>
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="related">
+      <h3>Navigation</h3>
+      <ul>
+        <li class="right" style="margin-right: 10px">
+          <a href="genindex.html" title="General Index"
+             >index</a></li>
+        <li class="right" >
+          <a href="py-modindex.html" title="Python Module Index"
+             >modules</a> |</li>
+        <li class="right" >
+          <a href="webframework.html" title="Core web framework"
+             >next</a> |</li>
+        <li class="right" >
+          <a href="devserver.html" title="Development server and production"
+             >previous</a> |</li>
+        <li><a href="index.html">cyclone git-2013042301 documentation</a> &raquo;</li>
+          <li><a href="devserver.html" >Development server and production</a> &raquo;</li> 
+      </ul>
+    </div>
+    <div class="footer">
+        &copy; Copyright 2013, Alexandre Fiori.
+      Created using <a href="http://sphinx.pocoo.org/">Sphinx</a> 1.1.3.
+    </div>
+  </body>
+</html>

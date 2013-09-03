@@ -1,0 +1,686 @@
+
+
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"
+  "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+
+
+<html xmlns="http://www.w3.org/1999/xhtml">
+  <head>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+    
+    <title>cyclone.redis — Non-blocking Redis client &mdash; cyclone git-2013042301 documentation</title>
+    
+    <link rel="stylesheet" href="_static/sphinx.css" type="text/css" />
+    <link rel="stylesheet" href="_static/pygments.css" type="text/css" />
+    
+    <script type="text/javascript">
+      var DOCUMENTATION_OPTIONS = {
+        URL_ROOT:    '',
+        VERSION:     'git-2013042301',
+        COLLAPSE_INDEX: false,
+        FILE_SUFFIX: '.html',
+        HAS_SOURCE:  true
+      };
+    </script>
+    <script type="text/javascript" src="_static/jquery.js"></script>
+    <script type="text/javascript" src="_static/underscore.js"></script>
+    <script type="text/javascript" src="_static/doctools.js"></script>
+    <link rel="top" title="cyclone git-2013042301 documentation" href="index.html" />
+    <link rel="up" title="Asynchronous networking" href="networking.html" />
+    <link rel="next" title="cyclone.httpclient — Non-blocking HTTP client" href="httpclient.html" />
+    <link rel="prev" title="Asynchronous networking" href="networking.html" /> 
+  </head>
+  <body>
+    <div class="related">
+      <h3>Navigation</h3>
+      <ul>
+        <li class="right" style="margin-right: 10px">
+          <a href="genindex.html" title="General Index"
+             accesskey="I">index</a></li>
+        <li class="right" >
+          <a href="py-modindex.html" title="Python Module Index"
+             >modules</a> |</li>
+        <li class="right" >
+          <a href="httpclient.html" title="cyclone.httpclient — Non-blocking HTTP client"
+             accesskey="N">next</a> |</li>
+        <li class="right" >
+          <a href="networking.html" title="Asynchronous networking"
+             accesskey="P">previous</a> |</li>
+        <li><a href="index.html">cyclone git-2013042301 documentation</a> &raquo;</li>
+          <li><a href="networking.html" accesskey="U">Asynchronous networking</a> &raquo;</li> 
+      </ul>
+    </div>  
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          <div class="body">
+            
+  <div class="section" id="cyclone-redis-non-blocking-redis-client">
+<h1><tt class="docutils literal"><span class="pre">cyclone.redis</span></tt> &#8212; Non-blocking Redis client<a class="headerlink" href="#cyclone-redis-non-blocking-redis-client" title="Permalink to this headline">¶</a></h1>
+<p>For the latest source code, see <a class="reference external" href="http://github.com/fiorix/txredisapi">http://github.com/fiorix/txredisapi</a></p>
+<p><tt class="xref py py-obj docutils literal"><span class="pre">cyclone.redis</span></tt> is a non-blocking client driver for the
+<a class="reference external" href="http://redis.io">redis</a> database.</p>
+<p>It started as a fork of the original <a class="reference external" href="http://pypi.python.org/pypi/txredis/">redis protocol for
+twisted</a>, and evolved into a
+more robust, reliable, and complete solution for applications like web
+servers. These types of applications often need a fault-tolerant pool of
+connections with multiple redis servers, making it possible to easily
+develop and maintain distributed systems.</p>
+<p>Most of the <a class="reference external" href="http://redis.io/commands">redis commands</a> are supported,
+as well as other features such as silent reconnection, connection pools,
+and automatic sharding.</p>
+<p>This driver is distributed as part of the <a class="reference external" href="http://cyclone.io">cyclone</a>
+web framework.</p>
+<div class="section" id="features">
+<h2>Features<a class="headerlink" href="#features" title="Permalink to this headline">¶</a></h2>
+<ul class="simple">
+<li>Connection Pools</li>
+<li>Lazy Connections</li>
+<li>Automatic Sharding</li>
+<li>Automatic Reconnection</li>
+<li>Publish/Subscribe (PubSub)</li>
+<li>Transactions</li>
+<li>Unix Socket Connections</li>
+</ul>
+<div class="section" id="usage">
+<h3>Usage<a class="headerlink" href="#usage" title="Permalink to this headline">¶</a></h3>
+<p>First thing to do is choose what type of connection you want. The driver
+supports single connection, connection pools, sharded connections (with
+automatic distribution based on a built-in consistent hashing
+algorithm), sharded connection pools, and all of these different types
+can be <em>lazy</em>, which is explained later (because I&#8217;m lazy now).</p>
+<p>Basically, you want normal connections for simple batch clients that
+connect to redis, execute a couple of commands and disconnect - like
+crawlers, etc.</p>
+<p>Example:</p>
+<div class="highlight-none"><div class="highlight"><pre>from cyclone import redis
+from twisted.internet import defer
+from twisted.internet import reactor
+
+
+@defer.inlineCallbacks
+def main():
+    rc = yield redis.Connection()
+    print rc
+
+    yield rc.set(&quot;foo&quot;, &quot;bar&quot;)
+    v = yield rc.get(&quot;foo&quot;)
+    print &quot;foo:&quot;, repr(v)
+
+    yield rc.disconnect()
+
+
+if _name_ == &quot;_main_&quot;:
+    main().addCallback(lambda ign: reactor.stop())
+    reactor.run()
+</pre></div>
+</div>
+<p>Easily switch between <tt class="docutils literal"><span class="pre">redis.Connection()</span></tt> and
+<tt class="docutils literal"><span class="pre">redis.ConnectionPool()</span></tt> with absolutely no changes to the logic of
+your program.</p>
+<p>These are all the supported methods for connecting to Redis:</p>
+<div class="highlight-none"><div class="highlight"><pre>Connection(host, port, dbid, reconnect)
+lazyConnection(host, port, dbid, reconnect)
+
+ConnectionPool(host, port, dbid, poolsize, reconnect)
+lazyConnectionPool(host, port, dbid, poolsize, reconnect)
+
+ShardedConnection(hosts, dbid, reconnect)
+lazyShardedConnection(hosts, dbid, reconnect)
+
+ShardedConnectionPool(hosts, dbid, poolsize, reconnect)
+lazyShardedConnectionPool(hosts, dbid, poolsize, reconnect)
+
+UnixConnection(path, dbid, reconnect)
+lazyUnixConnection(path, dbid, reconnect)
+
+UnixConnectionPool(unix, dbid, poolsize, reconnect)
+lazyUnixConnectionPool(unix, dbid, poolsize, reconnect)
+
+ShardedUnixConnection(paths, dbid, reconnect)
+lazyShardedUnixConnection(paths, dbid, reconnect)
+
+ShardedUnixConnectionPool(paths, dbid, poolsize, reconnect)
+lazyShardedUnixConnectionPool(paths, dbid, poolsize, reconnect)
+</pre></div>
+</div>
+<p>The arguments are:</p>
+<ul class="simple">
+<li>host: the IP address or hostname of the redis server. [default:
+localhost]</li>
+<li>port: port number of the redis server. [default: 6379]</li>
+<li>path: path of redis server&#8217;s socket [default: /tmp/redis.sock]</li>
+<li>dbid: database id of redis server. [default: 0]</li>
+<li>poolsize: how many connections to make. [default: 10]</li>
+<li>reconnect: auto-reconnect if connection is lost. [default: True]</li>
+<li>hosts (for sharded): list of <tt class="docutils literal"><span class="pre">host:port</span></tt> pairs. [default: None]</li>
+<li>paths (for sharded): list of <tt class="docutils literal"><span class="pre">pathnames</span></tt>. [default: None]</li>
+</ul>
+</div>
+</div>
+<div class="section" id="connection-handlers">
+<h2>Connection Handlers<a class="headerlink" href="#connection-handlers" title="Permalink to this headline">¶</a></h2>
+<p>All connection methods return a connection handler object at some point.</p>
+<p>Normal connections (not lazy) return a deferred, which is fired with the
+connection handler after the connection is established.</p>
+<p>In case of connection pools, it will only fire the callback after all
+connections are set up, and ready.</p>
+<p>Connection handler is the client interface with redis. It accepts all
+the commands supported by redis, such as <tt class="docutils literal"><span class="pre">get</span></tt>, <tt class="docutils literal"><span class="pre">set</span></tt>, etc. It is
+the <tt class="docutils literal"><span class="pre">rc</span></tt> object in the example below.</p>
+<p>Connection handlers will automatically select one of the available
+connections in connection pools, and automatically reconnect to redis
+when necessary.</p>
+<p>If the connection with redis is lost, all commands will raise the
+<tt class="docutils literal"><span class="pre">ConnectionError</span></tt> exception, to indicate that there&#8217;s no active
+connection. However, if the <tt class="docutils literal"><span class="pre">reconnect</span></tt> argument was set to <tt class="docutils literal"><span class="pre">True</span></tt>
+during the initialization, it will continuosly try to reconnect, in
+background.</p>
+<p>Example:</p>
+<div class="highlight-none"><div class="highlight"><pre>from cyclone import redis
+from twisted.internet import defer
+from twisted.internet import reactor
+
+
+def sleep(n):
+    d = defer.Deferred()
+    reactor.callLater(5, lambda *ign: d.callback(None))
+    return d
+
+
+@defer.inlineCallbacks
+def main():
+    rc = yield redis.ConnectionPool()
+    print rc
+
+    # set
+    yield rc.set(&quot;foo&quot;, &quot;bar&quot;)
+
+    # sleep, so you can kill redis
+    print &quot;sleeping for 5s, kill redis now...&quot;
+    yield sleep(5)
+
+    try:
+      v = yield rc.get(&quot;foo&quot;)
+      print &quot;foo:&quot;, v
+
+      yield rc.disconnect()
+    except redis.ConnectionError, e:
+      print str(e)
+
+
+if _name_ == &quot;_main_&quot;:
+    main().addCallback(lambda ign: reactor.stop())
+    reactor.run()
+</pre></div>
+</div>
+</div>
+<div class="section" id="lazy-connections">
+<h2>Lazy Connections<a class="headerlink" href="#lazy-connections" title="Permalink to this headline">¶</a></h2>
+<p>This type of connection will immediately return the connection handler
+object, even before the connection is made.</p>
+<p>It will start the connection, (or connections, in case of connection
+pools) in background, and automatically reconnect if necessary.</p>
+<p>You want lazy connections when you&#8217;re writing servers, like web servers,
+or any other type of server that should not wait for the redis
+connection during the initialization of the program.</p>
+<p>The example below is a web application, which will expose redis set, get
+and delete commands over HTTP.</p>
+<p>If the database connection is down (either because redis is not running,
+or whatever reason), the web application will start normally. If
+connection is lost during the operation, nothing will change.</p>
+<p>When there&#8217;s no connection, all commands will fail, therefore the web
+application will respond with HTTP 503 (Service Unavailable). It will
+resume to normal once the connection with redis is re-established.</p>
+<p>Try killing redis server after the application is running, and make a
+couple of requests. Then, start redis again and give it another try.</p>
+<p>Example:</p>
+<div class="highlight-none"><div class="highlight"><pre>import sys
+
+import cyclone.web
+import cyclone.redis
+from twisted.internet import defer
+from twisted.internet import reactor
+from twisted.python import log
+
+
+class Application(cyclone.web.Application):
+    def _init_(self):
+      handlers = [ (r&quot;/text/(.+)&quot;, TextHandler) ]
+
+      RedisMixin.setup()
+      cyclone.web.Application._init_(self, handlers, debug=True)
+
+
+class RedisMixin(object):
+    redis_conn = None
+
+    @classmethod
+    def setup(self):
+        # read settings from a conf file or something...
+        RedisMixin.redis_conn = cyclone.redis.lazyConnectionPool()
+
+
+# Provide GET, SET and DELETE redis operations via HTTP
+class TextHandler(cyclone.web.RequestHandler, RedisMixin):
+    @defer.inlineCallbacks
+    def get(self, key):
+      try:
+          value = yield self.redis_conn.get(key)
+      except Exception, e:
+          log.msg(&quot;Redis failed to get(&#39;%s&#39;): %s&quot; % (key, str(e)))
+          raise cyclone.web.HTTPError(503)
+
+      self.set_header(&quot;Content-Type&quot;, &quot;text/plain&quot;)
+      self.write(&quot;%s=%s\r\n&quot; % (key, value))
+
+    @defer.inlineCallbacks
+    def post(self, key):
+        value = self.get_argument(&quot;value&quot;)
+        try:
+            yield self.redis_conn.set(key, value)
+        except Exception, e:
+            log.msg(&quot;Redis failed to set(&#39;%s&#39;, &#39;%s&#39;): %s&quot; % (key, value, str(e)))
+            raise cyclone.web.HTTPError(503)
+
+        self.set_header(&quot;Content-Type&quot;, &quot;text/plain&quot;)
+        self.write(&quot;%s=%s\r\n&quot; % (key, value))
+
+    @defer.inlineCallbacks
+    def delete(self, key):
+        try:
+            n = yield self.redis_conn.delete(key)
+        except Exception, e:
+            log.msg(&quot;Redis failed to del(&#39;%s&#39;): %s&quot; % (key, str(e)))
+            raise cyclone.web.HTTPError(503)
+
+        self.set_header(&quot;Content-Type&quot;, &quot;text/plain&quot;)
+        self.write(&quot;DEL %s=%d\r\n&quot; % (key, n))
+
+
+def main():
+    log.startLogging(sys.stdout)
+    reactor.listenTCP(8888, Application(), interface=&quot;127.0.0.1&quot;)
+    reactor.run()
+
+
+if _name_ == &quot;_main_&quot;:
+    main()
+</pre></div>
+</div>
+<p>This is the server running in one terminal:</p>
+<div class="highlight-none"><div class="highlight"><pre>$ ./helloworld.py
+2012-02-17 15:40:25-0500 [-] Log opened.
+2012-02-17 15:40:25-0500 [-] Starting factory &lt;redis.Factory instance at 0x1012f0560&gt;
+2012-02-17 15:40:25-0500 [-] _main_.Application starting on 8888
+2012-02-17 15:40:25-0500 [-] Starting factory &lt;_main_.Application instance at 0x100f42290&gt;
+2012-02-17 15:40:53-0500 [RedisProtocol,client] 200 POST /text/foo (127.0.0.1) 1.20ms
+2012-02-17 15:41:01-0500 [RedisProtocol,client] 200 GET /text/foo (127.0.0.1) 0.97ms
+2012-02-17 15:41:09-0500 [RedisProtocol,client] 200 DELETE /text/foo (127.0.0.1) 0.65ms
+(killed redis-server)
+2012-02-17 15:48:48-0500 [HTTPConnection,0,127.0.0.1] Redis failed to get(&#39;foo&#39;): Not connected
+2012-02-17 15:48:48-0500 [HTTPConnection,0,127.0.0.1] 503 GET /text/foo (127.0.0.1) 2.99ms
+</pre></div>
+</div>
+<p>And these are the requests, from <tt class="docutils literal"><span class="pre">curl</span></tt> in another terminal.</p>
+<p>Set:</p>
+<div class="highlight-none"><div class="highlight"><pre>$ curl -D - -d &quot;value=bar&quot; http://localhost:8888/text/foo
+HTTP/1.1 200 OK
+Content-Length: 9
+Content-Type: text/plain
+
+foo=bar
+</pre></div>
+</div>
+<p>Get:</p>
+<div class="highlight-none"><div class="highlight"><pre>$ curl -D - http://localhost:8888/text/foo
+HTTP/1.1 200 OK
+Content-Length: 9
+Etag: &quot;b63729aa7fa0e438eed735880951dcc21d733676&quot;
+Content-Type: text/plain
+
+foo=bar
+</pre></div>
+</div>
+<p>Delete:</p>
+<div class="highlight-none"><div class="highlight"><pre>$ curl -D - -X DELETE http://localhost:8888/text/foo
+HTTP/1.1 200 OK
+Content-Length: 11
+Content-Type: text/plain
+
+DEL foo=1
+</pre></div>
+</div>
+<p>When redis is not running:</p>
+<div class="highlight-none"><div class="highlight"><pre>$ curl -D - http://localhost:8888/text/foo
+HTTP/1.1 503 Service Unavailable
+Content-Length: 89
+Content-Type: text/html; charset=UTF-8
+
+&lt;html&gt;&lt;title&gt;503: Service Unavailable&lt;/title&gt;
+&lt;body&gt;503: Service Unavailable&lt;/body&gt;&lt;/html&gt;
+</pre></div>
+</div>
+</div>
+<div class="section" id="sharded-connections">
+<h2>Sharded Connections<a class="headerlink" href="#sharded-connections" title="Permalink to this headline">¶</a></h2>
+<p>They can be normal, or lazy connections. They can be sharded connection
+pools. Not all commands are supported on sharded connections.</p>
+<p>If the command you&#8217;re trying to run is not supported on sharded
+connections, the connection handler will raise the
+<tt class="docutils literal"><span class="pre">NotImplementedError</span></tt> exception.</p>
+<p>Simple example with automatic sharding of keys between two redis
+servers:</p>
+<div class="highlight-none"><div class="highlight"><pre>from cyclone import redis
+from twisted.internet import defer
+from twisted.internet import reactor
+
+
+@defer.inlineCallbacks
+def main():
+    rc = yield redis.ShardedConnection([&quot;localhost:6379&quot;, &quot;localhost:6380&quot;])
+    print rc
+    print &quot;Supported methods on sharded connections:&quot;, rc.ShardedMethods
+
+    keys = []
+    for x in xrange(100):
+        key = &quot;foo%02d&quot; % x
+        yield rc.set(key, &quot;bar%02d&quot; % x)
+        keys.append(key)
+
+    # yey! mget is supported!
+    response = yield rc.mget(keys)
+    for val in response:
+        print val
+
+    yield rc.disconnect()
+
+
+if _name_ == &quot;_main_&quot;:
+    main().addCallback(lambda ign: reactor.stop())
+    reactor.run()
+</pre></div>
+</div>
+</div>
+<div class="section" id="transactions">
+<h2>Transactions<a class="headerlink" href="#transactions" title="Permalink to this headline">¶</a></h2>
+<p>For obvious reasons, transactions are NOT supported on sharded
+connections. But they work pretty good on normal or lazy connections,
+and connection pools.</p>
+<p>NOTE: redis uses the following methods for transactions:</p>
+<ul class="simple">
+<li>WATCH: synchronization</li>
+<li>MULTI: start the transaction</li>
+<li>EXEC: commit the transaction</li>
+<li>DISCARD: you got it.</li>
+</ul>
+<p>Because <tt class="docutils literal"><span class="pre">exec</span></tt> is a reserved word in Python, the command to commit is
+<tt class="docutils literal"><span class="pre">commit</span></tt>.</p>
+<p>Example:</p>
+<div class="highlight-none"><div class="highlight"><pre>from cyclone import redis
+from twisted.internet import defer
+from twisted.internet import reactor
+
+
+@defer.inlineCallbacks
+def main():
+    rc = yield redis.ConnectionPool()
+
+    # Remove the keys
+    yield rc.delete([&quot;a1&quot;, &quot;a2&quot;, &quot;a3&quot;])
+
+    # Start transaction
+    t = yield rc.multi()
+
+    # These will return &quot;QUEUED&quot; - even t.get(key)
+    yield t.set(&quot;a1&quot;, &quot;1&quot;)
+    yield t.set(&quot;a2&quot;, &quot;2&quot;)
+    yield t.set(&quot;a3&quot;, &quot;3&quot;)
+    yield t.get(&quot;a1&quot;)
+
+    # Try to call get() while in a transaction.
+    # It will fail if it&#39;s not a connection pool, or if all connections
+    # in the pool are in a transaction.
+    # Note that it&#39;s rc.get(), not the transaction object t.get().
+    try:
+        v = yield rc.get(&quot;foo&quot;)
+    print &quot;foo=&quot;, v
+        except Exception, e:
+        print &quot;can&#39;t get foo:&quot;, e
+
+    # Commit, and get all responses from transaction.
+    r = yield t.commit()
+    print &quot;commit=&quot;, repr(r)
+
+    yield rc.disconnect()
+
+
+if _name_ == &quot;_main_&quot;:
+    main().addCallback(lambda ign: reactor.stop())
+    reactor.run()
+</pre></div>
+</div>
+<p>A &#8220;COUNTER&#8221; example, using WATCH/MULTI:</p>
+<div class="highlight-none"><div class="highlight"><pre>from cyclone import redis
+from twisted.internet import defer
+from twisted.internet import reactor
+
+
+@defer.inlineCallbacks
+def main():
+    rc = yield redis.ConnectionPool()
+
+    # Reset keys
+    yield rc.set(&quot;a1&quot;, 0)
+
+    # Synchronize and start transaction
+    t = yield rc.watch(&quot;a1&quot;)
+
+    # Load previous value
+    a1 = yield t.get(&quot;a1&quot;)
+
+    # start the transactional pipeline
+    yield t.multi()
+
+    # modify and retrieve the new a1 value
+    yield t.set(&quot;a1&quot;, a1 + 1)
+    yield t.get(&quot;a1&quot;)
+
+    print &quot;simulating concurrency, this will abort the transaction&quot;
+    yield rc.set(&quot;a1&quot;, 2)
+
+    try:
+        r = yield t.commit()
+        print &quot;commit=&quot;, repr(r)
+    except redis.WatchError, e:
+        a1 = yield rc.get(&quot;a1&quot;)
+        print &quot;transaction has failed.&quot;
+        print &quot;current a1 value: &quot;, a1
+
+    yield rc.disconnect()
+
+
+if _name_ == &quot;_main_&quot;:
+    main().addCallback(lambda ign: reactor.stop())
+    reactor.run()
+</pre></div>
+</div>
+<p>Calling <tt class="docutils literal"><span class="pre">commit</span></tt> will cause it to return a list with the return of all
+commands executed in the transaction. <tt class="docutils literal"><span class="pre">discard</span></tt>, on the other hand,
+will normally return just an <tt class="docutils literal"><span class="pre">OK</span></tt>.</p>
+</div>
+<div class="section" id="authentication">
+<h2>Authentication<a class="headerlink" href="#authentication" title="Permalink to this headline">¶</a></h2>
+<p>This is how to authenticate:</p>
+<div class="highlight-none"><div class="highlight"><pre>import cyclone.redis
+from twisted.internet import defer
+from twisted.internet import reactor
+
+
+@defer.inlineCallbacks
+def main():
+    redis = yield cyclone.redis.Connection()
+    yield redis.auth(&quot;foobared&quot;)
+    yield redis.set(&quot;foo&quot;, &quot;bar&quot;)
+    print (yield redis.get(&quot;foo&quot;))
+    reactor.stop()
+
+
+if _name_ == &quot;_main_&quot;:
+    main()
+    reactor.run()
+</pre></div>
+</div>
+<p>If the password does not match, most of the commands will return
+nothing, except for <tt class="docutils literal"><span class="pre">get</span></tt>, which returns <tt class="docutils literal"><span class="pre">operation</span> <span class="pre">not</span> <span class="pre">permitted</span></tt>.</p>
+<p>There&#8217;s one caveat: whenever authentication is required, the <em>database
+id</em> must be manually selected after the <tt class="docutils literal"><span class="pre">auth</span></tt> command. The <tt class="docutils literal"><span class="pre">dbid=N</span></tt>
+argument of <tt class="docutils literal"><span class="pre">Connection()</span></tt> must not be defined, or set to <tt class="docutils literal"><span class="pre">None</span></tt>;
+otherwise, it&#8217;ll try to select <em>dbid</em> before authentication, and it will
+fail.</p>
+</div>
+<div class="section" id="credits">
+<h2>Credits<a class="headerlink" href="#credits" title="Permalink to this headline">¶</a></h2>
+<p>Thanks to (in no particular order):</p>
+<ul>
+<li><dl class="first docutils">
+<dt>Gleicon Moraes</dt>
+<dd><ul class="first last simple">
+<li>Bug fixes, testing, and
+<a class="reference external" href="http://github.com/gleicon/restmq">RestMQ</a>.</li>
+<li>For writing the Consistent Hashing algorithm used for sharding.</li>
+</ul>
+</dd>
+</dl>
+</li>
+<li><dl class="first docutils">
+<dt>Dorian Raymer and Ludovico Magnocavallo</dt>
+<dd><ul class="first last simple">
+<li>Authors of the original <em>redis protocol for twisted</em>.</li>
+</ul>
+</dd>
+</dl>
+</li>
+<li><dl class="first docutils">
+<dt>Vanderson Mota</dt>
+<dd><ul class="first last simple">
+<li>Initial pypi setup, and patches.</li>
+</ul>
+</dd>
+</dl>
+</li>
+<li><dl class="first docutils">
+<dt>Jeethu Rao</dt>
+<dd><ul class="first last simple">
+<li>Contributed with test cases, and other ideas like support for
+travis-ci</li>
+</ul>
+</dd>
+</dl>
+</li>
+<li><dl class="first docutils">
+<dt>Jeremy Archer</dt>
+<dd><ul class="first last simple">
+<li>Minor bugfixes.</li>
+</ul>
+</dd>
+</dl>
+</li>
+<li><dl class="first docutils">
+<dt>Christoph Tavan (&#64;ctavan)</dt>
+<dd><ul class="first last simple">
+<li>Idea and test case for nested multi bulk replies, minor command
+enhancements.</li>
+</ul>
+</dd>
+</dl>
+</li>
+<li><dl class="first docutils">
+<dt>dgvncsz0f</dt>
+<dd><ul class="first last simple">
+<li>WATCH/UNWATCH commands</li>
+</ul>
+</dd>
+</dl>
+</li>
+</ul>
+</div>
+</div>
+
+
+          </div>
+        </div>
+      </div>
+      <div class="sphinxsidebar">
+        <div class="sphinxsidebarwrapper">
+  <h3><a href="index.html">Table Of Contents</a></h3>
+  <ul>
+<li><a class="reference internal" href="#"><tt class="docutils literal"><span class="pre">cyclone.redis</span></tt> &#8212; Non-blocking Redis client</a><ul>
+<li><a class="reference internal" href="#features">Features</a><ul>
+<li><a class="reference internal" href="#usage">Usage</a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#connection-handlers">Connection Handlers</a></li>
+<li><a class="reference internal" href="#lazy-connections">Lazy Connections</a></li>
+<li><a class="reference internal" href="#sharded-connections">Sharded Connections</a></li>
+<li><a class="reference internal" href="#transactions">Transactions</a></li>
+<li><a class="reference internal" href="#authentication">Authentication</a></li>
+<li><a class="reference internal" href="#credits">Credits</a></li>
+</ul>
+</li>
+</ul>
+
+  <h4>Previous topic</h4>
+  <p class="topless"><a href="networking.html"
+                        title="previous chapter">Asynchronous networking</a></p>
+  <h4>Next topic</h4>
+  <p class="topless"><a href="httpclient.html"
+                        title="next chapter"><tt class="docutils literal docutils literal docutils literal"><span class="pre">cyclone.httpclient</span></tt> &#8212; Non-blocking HTTP client</a></p>
+  <h3>This Page</h3>
+  <ul class="this-page-menu">
+    <li><a href="_sources/redis.txt"
+           rel="nofollow">Show Source</a></li>
+  </ul>
+<div id="searchbox" style="display: none">
+  <h3>Quick search</h3>
+    <form class="search" action="search.html" method="get">
+      <input type="text" name="q" />
+      <input type="submit" value="Go" />
+      <input type="hidden" name="check_keywords" value="yes" />
+      <input type="hidden" name="area" value="default" />
+    </form>
+    <p class="searchtip" style="font-size: 90%">
+    Enter search terms or a module, class or function name.
+    </p>
+</div>
+<script type="text/javascript">$('#searchbox').show(0);</script>
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="related">
+      <h3>Navigation</h3>
+      <ul>
+        <li class="right" style="margin-right: 10px">
+          <a href="genindex.html" title="General Index"
+             >index</a></li>
+        <li class="right" >
+          <a href="py-modindex.html" title="Python Module Index"
+             >modules</a> |</li>
+        <li class="right" >
+          <a href="httpclient.html" title="cyclone.httpclient — Non-blocking HTTP client"
+             >next</a> |</li>
+        <li class="right" >
+          <a href="networking.html" title="Asynchronous networking"
+             >previous</a> |</li>
+        <li><a href="index.html">cyclone git-2013042301 documentation</a> &raquo;</li>
+          <li><a href="networking.html" >Asynchronous networking</a> &raquo;</li> 
+      </ul>
+    </div>
+    <div class="footer">
+        &copy; Copyright 2013, Alexandre Fiori.
+      Created using <a href="http://sphinx.pocoo.org/">Sphinx</a> 1.1.3.
+    </div>
+  </body>
+</html>

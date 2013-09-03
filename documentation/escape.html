@@ -1,0 +1,261 @@
+
+
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"
+  "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+
+
+<html xmlns="http://www.w3.org/1999/xhtml">
+  <head>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+    
+    <title>cyclone.escape — Escaping and string manipulation &mdash; cyclone git-2013042301 documentation</title>
+    
+    <link rel="stylesheet" href="_static/sphinx.css" type="text/css" />
+    <link rel="stylesheet" href="_static/pygments.css" type="text/css" />
+    
+    <script type="text/javascript">
+      var DOCUMENTATION_OPTIONS = {
+        URL_ROOT:    '',
+        VERSION:     'git-2013042301',
+        COLLAPSE_INDEX: false,
+        FILE_SUFFIX: '.html',
+        HAS_SOURCE:  true
+      };
+    </script>
+    <script type="text/javascript" src="_static/jquery.js"></script>
+    <script type="text/javascript" src="_static/underscore.js"></script>
+    <script type="text/javascript" src="_static/doctools.js"></script>
+    <link rel="top" title="cyclone git-2013042301 documentation" href="index.html" />
+    <link rel="up" title="Core web framework" href="webframework.html" />
+    <link rel="next" title="cyclone.locale — Internationalization support" href="locale.html" />
+    <link rel="prev" title="cyclone.template — Flexible output generation" href="template.html" /> 
+  </head>
+  <body>
+    <div class="related">
+      <h3>Navigation</h3>
+      <ul>
+        <li class="right" style="margin-right: 10px">
+          <a href="genindex.html" title="General Index"
+             accesskey="I">index</a></li>
+        <li class="right" >
+          <a href="py-modindex.html" title="Python Module Index"
+             >modules</a> |</li>
+        <li class="right" >
+          <a href="locale.html" title="cyclone.locale — Internationalization support"
+             accesskey="N">next</a> |</li>
+        <li class="right" >
+          <a href="template.html" title="cyclone.template — Flexible output generation"
+             accesskey="P">previous</a> |</li>
+        <li><a href="index.html">cyclone git-2013042301 documentation</a> &raquo;</li>
+          <li><a href="webframework.html" accesskey="U">Core web framework</a> &raquo;</li> 
+      </ul>
+    </div>  
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          <div class="body">
+            
+  <div class="section" id="module-cyclone.escape">
+<span id="cyclone-escape-escaping-and-string-manipulation"></span><h1><tt class="docutils literal"><span class="pre">cyclone.escape</span></tt> &#8212; Escaping and string manipulation<a class="headerlink" href="#module-cyclone.escape" title="Permalink to this headline">¶</a></h1>
+<p>Escaping/unescaping methods for HTML, JSON, URLs, and others.</p>
+<p>Also includes a few other miscellaneous string manipulation functions that
+have crept in over time.</p>
+<div class="section" id="escaping-functions">
+<h2>Escaping functions<a class="headerlink" href="#escaping-functions" title="Permalink to this headline">¶</a></h2>
+<dl class="function">
+<dt id="cyclone.escape.xhtml_escape">
+<tt class="descclassname">cyclone.escape.</tt><tt class="descname">xhtml_escape</tt><big>(</big><em>value</em><big>)</big><a class="reference internal" href="_modules/cyclone/escape.html#xhtml_escape"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#cyclone.escape.xhtml_escape" title="Permalink to this definition">¶</a></dt>
+<dd><p>Escapes a string so it is valid within XML or XHTML.</p>
+</dd></dl>
+
+<dl class="function">
+<dt id="cyclone.escape.xhtml_unescape">
+<tt class="descclassname">cyclone.escape.</tt><tt class="descname">xhtml_unescape</tt><big>(</big><em>value</em><big>)</big><a class="reference internal" href="_modules/cyclone/escape.html#xhtml_unescape"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#cyclone.escape.xhtml_unescape" title="Permalink to this definition">¶</a></dt>
+<dd><p>Un-escapes an XML-escaped string.</p>
+</dd></dl>
+
+<dl class="function">
+<dt id="cyclone.escape.url_escape">
+<tt class="descclassname">cyclone.escape.</tt><tt class="descname">url_escape</tt><big>(</big><em>value</em><big>)</big><a class="reference internal" href="_modules/cyclone/escape.html#url_escape"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#cyclone.escape.url_escape" title="Permalink to this definition">¶</a></dt>
+<dd><p>Returns a valid URL-encoded version of the given value.</p>
+</dd></dl>
+
+<dl class="function">
+<dt id="cyclone.escape.url_unescape">
+<tt class="descclassname">cyclone.escape.</tt><tt class="descname">url_unescape</tt><big>(</big><em>value</em>, <em>encoding='utf-8'</em><big>)</big><a class="reference internal" href="_modules/cyclone/escape.html#url_unescape"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#cyclone.escape.url_unescape" title="Permalink to this definition">¶</a></dt>
+<dd><p>Decodes the given value from a URL.</p>
+<p>The argument may be either a byte or unicode string.</p>
+<p>If encoding is None, the result will be a byte string.  Otherwise,
+the result is a unicode string in the specified encoding.</p>
+</dd></dl>
+
+<dl class="function">
+<dt id="cyclone.escape.json_encode">
+<tt class="descclassname">cyclone.escape.</tt><tt class="descname">json_encode</tt><big>(</big><em>value</em><big>)</big><a class="reference internal" href="_modules/cyclone/escape.html#json_encode"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#cyclone.escape.json_encode" title="Permalink to this definition">¶</a></dt>
+<dd><p>JSON-encodes the given Python object.</p>
+</dd></dl>
+
+<dl class="function">
+<dt id="cyclone.escape.json_decode">
+<tt class="descclassname">cyclone.escape.</tt><tt class="descname">json_decode</tt><big>(</big><em>value</em><big>)</big><a class="reference internal" href="_modules/cyclone/escape.html#json_decode"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#cyclone.escape.json_decode" title="Permalink to this definition">¶</a></dt>
+<dd><p>Returns Python objects for the given JSON string.</p>
+</dd></dl>
+
+</div>
+<div class="section" id="byte-unicode-conversions">
+<h2>Byte/unicode conversions<a class="headerlink" href="#byte-unicode-conversions" title="Permalink to this headline">¶</a></h2>
+<p>These functions are used extensively within Cyclone itself,
+but should not be directly needed by most applications.</p>
+<dl class="function">
+<dt id="cyclone.escape.utf8">
+<tt class="descclassname">cyclone.escape.</tt><tt class="descname">utf8</tt><big>(</big><em>value</em><big>)</big><a class="reference internal" href="_modules/cyclone/escape.html#utf8"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#cyclone.escape.utf8" title="Permalink to this definition">¶</a></dt>
+<dd><p>Converts a string argument to a byte string.</p>
+<p>If the argument is already a byte string or None, it is returned unchanged.
+Otherwise it must be a unicode string and is encoded as utf8.</p>
+</dd></dl>
+
+<dl class="function">
+<dt id="cyclone.escape.to_unicode">
+<tt class="descclassname">cyclone.escape.</tt><tt class="descname">to_unicode</tt><big>(</big><em>value</em><big>)</big><a class="reference internal" href="_modules/cyclone/escape.html#to_unicode"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#cyclone.escape.to_unicode" title="Permalink to this definition">¶</a></dt>
+<dd><p>Converts a string argument to a unicode string.</p>
+<p>If the argument is already a unicode string or None, it is returned
+unchanged.  Otherwise it must be a byte string and is decoded as utf8.</p>
+</dd></dl>
+
+<dl class="function">
+<dt id="cyclone.escape.native_str">
+<tt class="descclassname">cyclone.escape.</tt><tt class="descname">native_str</tt><big>(</big><big>)</big><a class="headerlink" href="#cyclone.escape.native_str" title="Permalink to this definition">¶</a></dt>
+<dd><p>Converts a byte or unicode string into type <tt class="xref py py-obj docutils literal"><span class="pre">str</span></tt>.  Equivalent to
+<a class="reference internal" href="#cyclone.escape.utf8" title="cyclone.escape.utf8"><tt class="xref py py-obj docutils literal"><span class="pre">utf8</span></tt></a> on Python 2 and <a class="reference internal" href="#cyclone.escape.to_unicode" title="cyclone.escape.to_unicode"><tt class="xref py py-obj docutils literal"><span class="pre">to_unicode</span></tt></a> on Python 3.</p>
+</dd></dl>
+
+<dl class="function">
+<dt id="cyclone.escape.to_basestring">
+<tt class="descclassname">cyclone.escape.</tt><tt class="descname">to_basestring</tt><big>(</big><em>value</em><big>)</big><a class="reference internal" href="_modules/cyclone/escape.html#to_basestring"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#cyclone.escape.to_basestring" title="Permalink to this definition">¶</a></dt>
+<dd><p>Converts a string argument to a subclass of basestring.</p>
+<p>In python2, byte and unicode strings are mostly interchangeable,
+so functions that deal with a user-supplied argument in combination
+with ascii string constants can use either and should return the type
+the user supplied.  In python3, the two types are not interchangeable,
+so this method is needed to convert byte strings to unicode.</p>
+</dd></dl>
+
+<dl class="function">
+<dt id="cyclone.escape.recursive_unicode">
+<tt class="descclassname">cyclone.escape.</tt><tt class="descname">recursive_unicode</tt><big>(</big><em>obj</em><big>)</big><a class="reference internal" href="_modules/cyclone/escape.html#recursive_unicode"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#cyclone.escape.recursive_unicode" title="Permalink to this definition">¶</a></dt>
+<dd><p>Walks a simple data structure, converting byte strings to unicode.</p>
+<p>Supports lists, tuples, and dictionaries.</p>
+</dd></dl>
+
+</div>
+<div class="section" id="miscellaneous-functions">
+<h2>Miscellaneous functions<a class="headerlink" href="#miscellaneous-functions" title="Permalink to this headline">¶</a></h2>
+<dl class="function">
+<dt id="cyclone.escape.linkify">
+<tt class="descclassname">cyclone.escape.</tt><tt class="descname">linkify</tt><big>(</big><em>text, shorten=False, extra_params='', require_protocol=False, permitted_protocols=['http', 'https']</em><big>)</big><a class="reference internal" href="_modules/cyclone/escape.html#linkify"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#cyclone.escape.linkify" title="Permalink to this definition">¶</a></dt>
+<dd><p>Converts plain text into HTML with links.</p>
+<p>For example: <tt class="docutils literal"><span class="pre">linkify(&quot;Hello</span> <span class="pre">http://cyclone.io!&quot;)</span></tt> would return
+<tt class="docutils literal"><span class="pre">Hello</span> <span class="pre">&lt;a</span> <span class="pre">href=&quot;http://cyclone.io&quot;&gt;http://cyclone.io&lt;/a&gt;!</span></tt></p>
+<p>Parameters:</p>
+<p>shorten: Long urls will be shortened for display.</p>
+<dl class="docutils">
+<dt>extra_params: Extra text to include in the link tag, or a callable</dt>
+<dd><p class="first">taking the link as an argument and returning the extra text
+e.g. <tt class="docutils literal"><span class="pre">linkify(text,</span> <span class="pre">extra_params='rel=&quot;nofollow&quot;</span> <span class="pre">class=&quot;external&quot;')</span></tt>,
+or:</p>
+<div class="last highlight-none"><div class="highlight"><pre>def extra_params_cb(url):
+    if url.startswith(&quot;http://example.com&quot;):
+        return &#39;class=&quot;internal&quot;&#39;
+    else:
+        return &#39;class=&quot;external&quot; rel=&quot;nofollow&quot;&#39;
+linkify(text, extra_params=extra_params_cb)
+</pre></div>
+</div>
+</dd>
+<dt>require_protocol: Only linkify urls which include a protocol. If this is</dt>
+<dd>False, urls such as www.facebook.com will also be linkified.</dd>
+<dt>permitted_protocols: List (or set) of protocols which should be linkified,</dt>
+<dd>e.g. linkify(text, permitted_protocols=[&#8220;http&#8221;, &#8220;ftp&#8221;, &#8220;mailto&#8221;]).
+It is very unsafe to include protocols such as &#8220;javascript&#8221;.</dd>
+</dl>
+</dd></dl>
+
+<dl class="function">
+<dt id="cyclone.escape.squeeze">
+<tt class="descclassname">cyclone.escape.</tt><tt class="descname">squeeze</tt><big>(</big><em>value</em><big>)</big><a class="reference internal" href="_modules/cyclone/escape.html#squeeze"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#cyclone.escape.squeeze" title="Permalink to this definition">¶</a></dt>
+<dd><p>Replace all sequences of whitespace chars with a single space.</p>
+</dd></dl>
+
+</div>
+</div>
+
+
+          </div>
+        </div>
+      </div>
+      <div class="sphinxsidebar">
+        <div class="sphinxsidebarwrapper">
+  <h3><a href="index.html">Table Of Contents</a></h3>
+  <ul>
+<li><a class="reference internal" href="#"><tt class="docutils literal"><span class="pre">cyclone.escape</span></tt> &#8212; Escaping and string manipulation</a><ul>
+<li><a class="reference internal" href="#escaping-functions">Escaping functions</a></li>
+<li><a class="reference internal" href="#byte-unicode-conversions">Byte/unicode conversions</a></li>
+<li><a class="reference internal" href="#miscellaneous-functions">Miscellaneous functions</a></li>
+</ul>
+</li>
+</ul>
+
+  <h4>Previous topic</h4>
+  <p class="topless"><a href="template.html"
+                        title="previous chapter"><tt class="docutils literal"><span class="pre">cyclone.template</span></tt> &#8212; Flexible output generation</a></p>
+  <h4>Next topic</h4>
+  <p class="topless"><a href="locale.html"
+                        title="next chapter"><tt class="docutils literal docutils literal"><span class="pre">cyclone.locale</span></tt> &#8212; Internationalization support</a></p>
+  <h3>This Page</h3>
+  <ul class="this-page-menu">
+    <li><a href="_sources/escape.txt"
+           rel="nofollow">Show Source</a></li>
+  </ul>
+<div id="searchbox" style="display: none">
+  <h3>Quick search</h3>
+    <form class="search" action="search.html" method="get">
+      <input type="text" name="q" />
+      <input type="submit" value="Go" />
+      <input type="hidden" name="check_keywords" value="yes" />
+      <input type="hidden" name="area" value="default" />
+    </form>
+    <p class="searchtip" style="font-size: 90%">
+    Enter search terms or a module, class or function name.
+    </p>
+</div>
+<script type="text/javascript">$('#searchbox').show(0);</script>
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="related">
+      <h3>Navigation</h3>
+      <ul>
+        <li class="right" style="margin-right: 10px">
+          <a href="genindex.html" title="General Index"
+             >index</a></li>
+        <li class="right" >
+          <a href="py-modindex.html" title="Python Module Index"
+             >modules</a> |</li>
+        <li class="right" >
+          <a href="locale.html" title="cyclone.locale — Internationalization support"
+             >next</a> |</li>
+        <li class="right" >
+          <a href="template.html" title="cyclone.template — Flexible output generation"
+             >previous</a> |</li>
+        <li><a href="index.html">cyclone git-2013042301 documentation</a> &raquo;</li>
+          <li><a href="webframework.html" >Core web framework</a> &raquo;</li> 
+      </ul>
+    </div>
+    <div class="footer">
+        &copy; Copyright 2013, Alexandre Fiori.
+      Created using <a href="http://sphinx.pocoo.org/">Sphinx</a> 1.1.3.
+    </div>
+  </body>
+</html>

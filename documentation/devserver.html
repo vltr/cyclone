@@ -1,0 +1,251 @@
+
+
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"
+  "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+
+
+<html xmlns="http://www.w3.org/1999/xhtml">
+  <head>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+    
+    <title>Development server and production &mdash; cyclone git-2013042301 documentation</title>
+    
+    <link rel="stylesheet" href="_static/sphinx.css" type="text/css" />
+    <link rel="stylesheet" href="_static/pygments.css" type="text/css" />
+    
+    <script type="text/javascript">
+      var DOCUMENTATION_OPTIONS = {
+        URL_ROOT:    '',
+        VERSION:     'git-2013042301',
+        COLLAPSE_INDEX: false,
+        FILE_SUFFIX: '.html',
+        HAS_SOURCE:  true
+      };
+    </script>
+    <script type="text/javascript" src="_static/jquery.js"></script>
+    <script type="text/javascript" src="_static/underscore.js"></script>
+    <script type="text/javascript" src="_static/doctools.js"></script>
+    <link rel="top" title="cyclone git-2013042301 documentation" href="index.html" />
+    <link rel="next" title="cyclone.app — Command-line line tool" href="app.html" />
+    <link rel="prev" title="Deferreds and inline callbacks" href="deferreds.html" /> 
+  </head>
+  <body>
+    <div class="related">
+      <h3>Navigation</h3>
+      <ul>
+        <li class="right" style="margin-right: 10px">
+          <a href="genindex.html" title="General Index"
+             accesskey="I">index</a></li>
+        <li class="right" >
+          <a href="py-modindex.html" title="Python Module Index"
+             >modules</a> |</li>
+        <li class="right" >
+          <a href="app.html" title="cyclone.app — Command-line line tool"
+             accesskey="N">next</a> |</li>
+        <li class="right" >
+          <a href="deferreds.html" title="Deferreds and inline callbacks"
+             accesskey="P">previous</a> |</li>
+        <li><a href="index.html">cyclone git-2013042301 documentation</a> &raquo;</li> 
+      </ul>
+    </div>  
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          <div class="body">
+            
+  <div class="section" id="development-server-and-production">
+<h1>Development server and production<a class="headerlink" href="#development-server-and-production" title="Permalink to this headline">¶</a></h1>
+<p>This section describes how to create new projects, manage the development
+server and deploy in production.</p>
+<p>Cyclone ships with the <tt class="docutils literal"><span class="pre">cyclone</span></tt> command line tool to help on creating
+projects, and running your applications.</p>
+<p>To create a new &#8220;Hello world&#8221; application:</p>
+<div class="highlight-none"><div class="highlight"><pre>$ cyclone app -n &gt; hello.py
+</pre></div>
+</div>
+<p>If you need a full featured project, with Redis and MySQL support, as well
+as sign up and password reset forms, check out the <tt class="docutils literal"><span class="pre">signup</span></tt> project
+template:</p>
+<div class="highlight-none"><div class="highlight"><pre>$ cyclone app --project=foobar --appskel=signup
+</pre></div>
+</div>
+<p>Add <tt class="docutils literal"><span class="pre">--git</span></tt> to the command line if you want it to be initialized as a git
+repository.</p>
+<p>For details on creating new projects see:</p>
+<div class="toctree-wrapper compound">
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="app.html"><tt class="docutils literal"><span class="pre">cyclone.app</span></tt> &#8212; Command-line line tool</a></li>
+</ul>
+</div>
+<div class="section" id="running">
+<h2>Running<a class="headerlink" href="#running" title="Permalink to this headline">¶</a></h2>
+<p>The <tt class="docutils literal"><span class="pre">cyclone</span></tt> command line is a wrapper to help on the development process.</p>
+<p>Servers can be started like this:</p>
+<div class="highlight-none"><div class="highlight"><pre>$ cyclone run hello.py
+</pre></div>
+</div>
+<p>As long as there&#8217;s at least one class that inherits from
+<a class="reference internal" href="web.html#cyclone.web.Application" title="cyclone.web.Application"><tt class="xref py py-obj docutils literal"><span class="pre">cyclone.web.Application</span></tt></a> in the Python file - like the <tt class="docutils literal"><span class="pre">hello.py</span></tt> above.
+You can also specify it using the absolute Python module path:</p>
+<div class="highlight-none"><div class="highlight"><pre>$ cyclone run --app=hello.Application
+</pre></div>
+</div>
+<p>Always set <tt class="docutils literal"><span class="pre">debug=True</span></tt> in <a class="reference internal" href="web.html#cyclone.web.Application.settings" title="cyclone.web.Application.settings"><tt class="xref py py-obj docutils literal"><span class="pre">cyclone.web.Application.settings</span></tt></a> to get more
+detailed log messages, for development.</p>
+<p>For more complex setups, like choosing different pid and log files, as well
+as daemonizing your server, use <tt class="docutils literal"><span class="pre">twistd</span></tt>:</p>
+<div class="highlight-none"><div class="highlight"><pre>$ twistd --pidfile=/var/run/cyclone.pid --logfile=/var/log/cyclone.log \
+         --reactor=epoll cyclone --port 8888 --listen 0.0.0.0 hello.py
+</pre></div>
+</div>
+<p>Cyclone project templates ship with <a class="reference external" href="http://debian.org">Debian</a> init scripts
+for starting the server in production. For a single instance, or for one
+instance per CPU core, by setting the CPU affinity.</p>
+</div>
+<div class="section" id="faster-dbs-and-nginx">
+<h2>Faster DBs and Nginx<a class="headerlink" href="#faster-dbs-and-nginx" title="Permalink to this headline">¶</a></h2>
+<p>Always consider using <a class="reference external" href="http://en.wikipedia.org/wiki/Unix_domain_socket">Unix Sockets</a>
+in production. They are considerably faster as they use less operating system
+resources, like all the syn/ack on regular INET/TCP connections.</p>
+<p>Unix Sockets may be used for database communication, as well as for Cyclone
+servers behind Nginx.</p>
+<p>Example:</p>
+<div class="highlight-none"><div class="highlight"><pre># hello.py
+import cyclone.redis
+from twisted.internet import defer
+from twisted.enterprise import adbapi
+
+class DatabaseMixin(object):
+    redis = cyclone.redis.lazyUnixConnectionPool(path=&quot;/tmp/redis.sock&quot;)
+    mysql = adbapi.ConnectionPool(&quot;MySQLdb&quot;, db=&quot;dummy&quot;,
+                                  unix_socket=&quot;/tmp/mysql.sock&quot;)
+
+class MainHandler(web.RequestHandler, DatabaseMixin):
+    @dbsafe
+    @defer.inlineCallbacks
+    def get(self):
+        rs1 = yield self.mysql.runQuery(&quot;SELECT 1&quot;)
+        rs2 = yield self.redis.get(&quot;foo&quot;)
+        ...
+</pre></div>
+</div>
+<p>And start one instance of this server per CPU core on the system, listening
+on Unix Sockets:</p>
+<div class="highlight-none"><div class="highlight"><pre>$ twistd --pidfile=/tmp/cyclone1.pid -n cyclone -u /tmp/cyclone1.sock hello.py
+$ twistd --pidfile=/tmp/cyclone2.pid -n cyclone -u /tmp/cyclone2.sock hello.py
+...
+</pre></div>
+</div>
+<p>Now make Nginx connect on Cyclone via Unix Socket, with this configuration:</p>
+<div class="highlight-none"><div class="highlight"><pre>upstream backend {
+  server unix:/tmp/cyclone1.sock;
+  server unix:/tmp/cyclone2.sock;
+}
+
+server {
+  listen      80;
+  server_name localhost;
+
+  location / {
+    proxy_pass        http://backend;
+    proxy_redirect    off;
+    proxy_set_header  Host             $host;
+    proxy_set_header  X-Real-IP        $remote_addr;
+    proxy_set_header  X-Forwarded-For  $proxy_add_x_forwarded_for;
+  }
+}
+</pre></div>
+</div>
+<p>When Cyclone is reverse proxied by Nginx, you must set <tt class="docutils literal"><span class="pre">xheaders=True</span></tt>
+in <a class="reference internal" href="web.html#cyclone.web.Application.settings" title="cyclone.web.Application.settings"><tt class="xref py py-obj docutils literal"><span class="pre">cyclone.web.Application.settings</span></tt></a> so it uses <tt class="docutils literal"><span class="pre">X-Real-IP</span></tt> and
+<tt class="docutils literal"><span class="pre">X-Forwarded-For</span></tt> HTTP headers.</p>
+</div>
+<div class="section" id="pypy-is-better">
+<h2>PyPy is better<a class="headerlink" href="#pypy-is-better" title="Permalink to this headline">¶</a></h2>
+<p>Cyclone runs much better on <a class="reference external" href="http://pypy.org">PyPy</a> than it does on CPython.
+Turns out that Twisted is actually faster, and therefore Cyclone too.</p>
+<p>Besides using Unix Sockets for databases and Nginx, it is highly recommended
+that you run Cyclone on PyPy in production.</p>
+<p>It has been tested on PyPy 1.8, 1.9 and 2.0-beta1 and runs well. There are
+some limitations though, like PyPy 1.8 does not support OpenSSL.</p>
+<p>If you&#8217;re not familiar with setting up PyPy, try our bash script that selects
+the right PyPy version for your architecture and install it on <tt class="docutils literal"><span class="pre">/opt</span></tt>, with
+symbolic links to <tt class="docutils literal"><span class="pre">/usr/local/bin</span></tt>.</p>
+<p>Make sure you have a compiler and openssl-dev. On Debian and Ubuntu systems,
+install these packages:</p>
+<div class="highlight-none"><div class="highlight"><pre>$ sudo apt-get install build-essential libssl-dev
+</pre></div>
+</div>
+<p>Then run the installer script: <a class="reference external" href="http://cyclone.io/install-pypy.sh">http://cyclone.io/install-pypy.sh</a></p>
+</div>
+</div>
+
+
+          </div>
+        </div>
+      </div>
+      <div class="sphinxsidebar">
+        <div class="sphinxsidebarwrapper">
+  <h3><a href="index.html">Table Of Contents</a></h3>
+  <ul>
+<li><a class="reference internal" href="#">Development server and production</a><ul>
+<li><a class="reference internal" href="#running">Running</a></li>
+<li><a class="reference internal" href="#faster-dbs-and-nginx">Faster DBs and Nginx</a></li>
+<li><a class="reference internal" href="#pypy-is-better">PyPy is better</a></li>
+</ul>
+</li>
+</ul>
+
+  <h4>Previous topic</h4>
+  <p class="topless"><a href="deferreds.html"
+                        title="previous chapter">Deferreds and inline callbacks</a></p>
+  <h4>Next topic</h4>
+  <p class="topless"><a href="app.html"
+                        title="next chapter"><tt class="docutils literal docutils literal"><span class="pre">cyclone.app</span></tt> &#8212; Command-line line tool</a></p>
+  <h3>This Page</h3>
+  <ul class="this-page-menu">
+    <li><a href="_sources/devserver.txt"
+           rel="nofollow">Show Source</a></li>
+  </ul>
+<div id="searchbox" style="display: none">
+  <h3>Quick search</h3>
+    <form class="search" action="search.html" method="get">
+      <input type="text" name="q" />
+      <input type="submit" value="Go" />
+      <input type="hidden" name="check_keywords" value="yes" />
+      <input type="hidden" name="area" value="default" />
+    </form>
+    <p class="searchtip" style="font-size: 90%">
+    Enter search terms or a module, class or function name.
+    </p>
+</div>
+<script type="text/javascript">$('#searchbox').show(0);</script>
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="related">
+      <h3>Navigation</h3>
+      <ul>
+        <li class="right" style="margin-right: 10px">
+          <a href="genindex.html" title="General Index"
+             >index</a></li>
+        <li class="right" >
+          <a href="py-modindex.html" title="Python Module Index"
+             >modules</a> |</li>
+        <li class="right" >
+          <a href="app.html" title="cyclone.app — Command-line line tool"
+             >next</a> |</li>
+        <li class="right" >
+          <a href="deferreds.html" title="Deferreds and inline callbacks"
+             >previous</a> |</li>
+        <li><a href="index.html">cyclone git-2013042301 documentation</a> &raquo;</li> 
+      </ul>
+    </div>
+    <div class="footer">
+        &copy; Copyright 2013, Alexandre Fiori.
+      Created using <a href="http://sphinx.pocoo.org/">Sphinx</a> 1.1.3.
+    </div>
+  </body>
+</html>

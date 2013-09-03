@@ -1,0 +1,1253 @@
+
+
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"
+  "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+
+
+<html xmlns="http://www.w3.org/1999/xhtml">
+  <head>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+    
+    <title>cyclone.auth &mdash; cyclone git-2013042301 documentation</title>
+    
+    <link rel="stylesheet" href="../../_static/sphinx.css" type="text/css" />
+    <link rel="stylesheet" href="../../_static/pygments.css" type="text/css" />
+    
+    <script type="text/javascript">
+      var DOCUMENTATION_OPTIONS = {
+        URL_ROOT:    '../../',
+        VERSION:     'git-2013042301',
+        COLLAPSE_INDEX: false,
+        FILE_SUFFIX: '.html',
+        HAS_SOURCE:  true
+      };
+    </script>
+    <script type="text/javascript" src="../../_static/jquery.js"></script>
+    <script type="text/javascript" src="../../_static/underscore.js"></script>
+    <script type="text/javascript" src="../../_static/doctools.js"></script>
+    <link rel="top" title="cyclone git-2013042301 documentation" href="../../index.html" />
+    <link rel="up" title="Module code" href="../index.html" /> 
+  </head>
+  <body>
+    <div class="related">
+      <h3>Navigation</h3>
+      <ul>
+        <li class="right" style="margin-right: 10px">
+          <a href="../../genindex.html" title="General Index"
+             accesskey="I">index</a></li>
+        <li class="right" >
+          <a href="../../py-modindex.html" title="Python Module Index"
+             >modules</a> |</li>
+        <li><a href="../../index.html">cyclone git-2013042301 documentation</a> &raquo;</li>
+          <li><a href="../index.html" accesskey="U">Module code</a> &raquo;</li> 
+      </ul>
+    </div>  
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          <div class="body">
+            
+  <h1>Source code for cyclone.auth</h1><div class="highlight"><pre>
+<span class="c"># coding: utf-8</span>
+<span class="c">#</span>
+<span class="c"># Copyright 2010 Alexandre Fiori</span>
+<span class="c"># based on the original Tornado by Facebook</span>
+<span class="c">#</span>
+<span class="c"># Licensed under the Apache License, Version 2.0 (the &quot;License&quot;); you may</span>
+<span class="c"># not use this file except in compliance with the License. You may obtain</span>
+<span class="c"># a copy of the License at</span>
+<span class="c">#</span>
+<span class="c">#     http://www.apache.org/licenses/LICENSE-2.0</span>
+<span class="c">#</span>
+<span class="c"># Unless required by applicable law or agreed to in writing, software</span>
+<span class="c"># distributed under the License is distributed on an &quot;AS IS&quot; BASIS, WITHOUT</span>
+<span class="c"># WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the</span>
+<span class="c"># License for the specific language governing permissions and limitations</span>
+<span class="c"># under the License.</span>
+
+<span class="sd">&quot;&quot;&quot;Implementations of various third-party authentication schemes.</span>
+
+<span class="sd">All the classes in this file are class Mixins designed to be used with</span>
+<span class="sd">web.py RequestHandler classes. The primary methods for each service are</span>
+<span class="sd">authenticate_redirect(), authorize_redirect(), and get_authenticated_user().</span>
+<span class="sd">The former should be called to redirect the user to, e.g., the OpenID</span>
+<span class="sd">authentication page on the third party service, and the latter should</span>
+<span class="sd">be called upon return to get the user data from the data returned by</span>
+<span class="sd">the third party service.</span>
+
+<span class="sd">They all take slightly different arguments due to the fact all these</span>
+<span class="sd">services implement authentication and authorization slightly differently.</span>
+<span class="sd">See the individual service classes below for complete documentation.</span>
+
+<span class="sd">Example usage for Google OpenID::</span>
+
+<span class="sd">    class GoogleHandler(cyclone.web.RequestHandler, cyclone.auth.GoogleMixin):</span>
+<span class="sd">        @cyclone.web.asynchronous</span>
+<span class="sd">        def get(self):</span>
+<span class="sd">            if self.get_argument(&quot;openid.mode&quot;, None):</span>
+<span class="sd">                self.get_authenticated_user(self.async_callback(self._on_auth))</span>
+<span class="sd">                return</span>
+<span class="sd">            self.authenticate_redirect()</span>
+
+<span class="sd">        def _on_auth(self, user):</span>
+<span class="sd">            if not user:</span>
+<span class="sd">                raise cyclone.web.HTTPError(500, &quot;Google auth failed&quot;)</span>
+<span class="sd">            # Save the user with, e.g., set_secure_cookie()</span>
+<span class="sd">&quot;&quot;&quot;</span>
+
+<span class="kn">from</span> <span class="nn">cyclone</span> <span class="kn">import</span> <span class="n">escape</span>
+<span class="kn">from</span> <span class="nn">cyclone</span> <span class="kn">import</span> <span class="n">httpclient</span>
+<span class="kn">from</span> <span class="nn">cyclone.util</span> <span class="kn">import</span> <span class="n">bytes_type</span>
+<span class="kn">from</span> <span class="nn">cyclone.util</span> <span class="kn">import</span> <span class="n">unicode_type</span>
+<span class="kn">from</span> <span class="nn">cyclone.httputil</span> <span class="kn">import</span> <span class="n">url_concat</span>
+<span class="kn">from</span> <span class="nn">twisted.python</span> <span class="kn">import</span> <span class="n">log</span>
+
+<span class="kn">import</span> <span class="nn">base64</span>
+<span class="kn">import</span> <span class="nn">binascii</span>
+<span class="kn">import</span> <span class="nn">hashlib</span>
+<span class="kn">import</span> <span class="nn">hmac</span>
+<span class="kn">import</span> <span class="nn">time</span>
+<span class="kn">import</span> <span class="nn">urllib</span>
+<span class="kn">import</span> <span class="nn">urlparse</span>
+<span class="kn">import</span> <span class="nn">uuid</span>
+
+
+<div class="viewcode-block" id="OpenIdMixin"><a class="viewcode-back" href="../../auth.html#cyclone.auth.OpenIdMixin">[docs]</a><span class="k">class</span> <span class="nc">OpenIdMixin</span><span class="p">(</span><span class="nb">object</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;Abstract implementation of OpenID and Attribute Exchange.</span>
+
+<span class="sd">    See GoogleMixin below for example implementations.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+<div class="viewcode-block" id="OpenIdMixin.authenticate_redirect"><a class="viewcode-back" href="../../auth.html#cyclone.auth.OpenIdMixin.authenticate_redirect">[docs]</a>    <span class="k">def</span> <span class="nf">authenticate_redirect</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">callback_uri</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span>
+                              <span class="n">ax_attrs</span><span class="o">=</span><span class="p">[</span><span class="s">&quot;name&quot;</span><span class="p">,</span> <span class="s">&quot;email&quot;</span><span class="p">,</span>
+                                        <span class="s">&quot;language&quot;</span><span class="p">,</span> <span class="s">&quot;username&quot;</span><span class="p">]):</span>
+        <span class="sd">&quot;&quot;&quot;Returns the authentication URL for this service.</span>
+
+<span class="sd">        After authentication, the service will redirect back to the given</span>
+<span class="sd">        callback URI.</span>
+
+<span class="sd">        We request the given attributes for the authenticated user by</span>
+<span class="sd">        default (name, email, language, and username). If you don&#39;t need</span>
+<span class="sd">        all those attributes for your app, you can request fewer with</span>
+<span class="sd">        the ax_attrs keyword argument.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">callback_uri</span> <span class="o">=</span> <span class="n">callback_uri</span> <span class="ow">or</span> <span class="bp">self</span><span class="o">.</span><span class="n">request</span><span class="o">.</span><span class="n">uri</span>
+        <span class="n">args</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_openid_args</span><span class="p">(</span><span class="n">callback_uri</span><span class="p">,</span> <span class="n">ax_attrs</span><span class="o">=</span><span class="n">ax_attrs</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">redirect</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_OPENID_ENDPOINT</span> <span class="o">+</span> <span class="s">&quot;?&quot;</span> <span class="o">+</span> <span class="n">urllib</span><span class="o">.</span><span class="n">urlencode</span><span class="p">(</span><span class="n">args</span><span class="p">))</span>
+</div>
+<div class="viewcode-block" id="OpenIdMixin.get_authenticated_user"><a class="viewcode-back" href="../../auth.html#cyclone.auth.OpenIdMixin.get_authenticated_user">[docs]</a>    <span class="k">def</span> <span class="nf">get_authenticated_user</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">callback</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Fetches the authenticated user data upon redirect.</span>
+
+<span class="sd">        This method should be called by the handler that receives the</span>
+<span class="sd">        redirect from the authenticate_redirect() or authorize_redirect()</span>
+<span class="sd">        methods.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="c"># Verify the OpenID response via direct request to the OP</span>
+        <span class="n">args</span> <span class="o">=</span> <span class="nb">dict</span><span class="p">((</span><span class="n">k</span><span class="p">,</span> <span class="n">v</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">])</span> <span class="k">for</span> <span class="n">k</span><span class="p">,</span> <span class="n">v</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">request</span><span class="o">.</span><span class="n">arguments</span><span class="o">.</span><span class="n">items</span><span class="p">())</span>
+        <span class="n">args</span><span class="p">[</span><span class="s">&quot;openid.mode&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="s">u&quot;check_authentication&quot;</span>
+        <span class="n">url</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_OPENID_ENDPOINT</span>
+        <span class="n">callback</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">async_callback</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_on_authentication_verified</span><span class="p">,</span>
+                                       <span class="n">callback</span><span class="p">)</span>
+        <span class="n">httpclient</span><span class="o">.</span><span class="n">fetch</span><span class="p">(</span><span class="n">url</span><span class="p">,</span> <span class="n">method</span><span class="o">=</span><span class="s">&quot;POST&quot;</span><span class="p">,</span>
+                <span class="n">postdata</span><span class="o">=</span><span class="n">urllib</span><span class="o">.</span><span class="n">urlencode</span><span class="p">(</span><span class="n">args</span><span class="p">))</span><span class="o">.</span><span class="n">addBoth</span><span class="p">(</span><span class="n">callback</span><span class="p">)</span>
+</div>
+    <span class="k">def</span> <span class="nf">_openid_args</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">callback_uri</span><span class="p">,</span> <span class="n">ax_attrs</span><span class="o">=</span><span class="p">[],</span> <span class="n">oauth_scope</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+        <span class="n">url</span> <span class="o">=</span> <span class="n">urlparse</span><span class="o">.</span><span class="n">urljoin</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">request</span><span class="o">.</span><span class="n">full_url</span><span class="p">(),</span> <span class="n">callback_uri</span><span class="p">)</span>
+        <span class="n">args</span> <span class="o">=</span> <span class="p">{</span>
+            <span class="s">&quot;openid.ns&quot;</span><span class="p">:</span> <span class="s">&quot;http://specs.openid.net/auth/2.0&quot;</span><span class="p">,</span>
+            <span class="s">&quot;openid.claimed_id&quot;</span><span class="p">:</span>
+                <span class="s">&quot;http://specs.openid.net/auth/2.0/identifier_select&quot;</span><span class="p">,</span>
+            <span class="s">&quot;openid.identity&quot;</span><span class="p">:</span>
+                <span class="s">&quot;http://specs.openid.net/auth/2.0/identifier_select&quot;</span><span class="p">,</span>
+            <span class="s">&quot;openid.return_to&quot;</span><span class="p">:</span> <span class="n">url</span><span class="p">,</span>
+            <span class="s">&quot;openid.realm&quot;</span><span class="p">:</span> <span class="n">urlparse</span><span class="o">.</span><span class="n">urljoin</span><span class="p">(</span><span class="n">url</span><span class="p">,</span> <span class="s">&#39;/&#39;</span><span class="p">),</span>
+            <span class="s">&quot;openid.mode&quot;</span><span class="p">:</span> <span class="s">&quot;checkid_setup&quot;</span><span class="p">,</span>
+        <span class="p">}</span>
+        <span class="k">if</span> <span class="n">ax_attrs</span><span class="p">:</span>
+            <span class="n">args</span><span class="o">.</span><span class="n">update</span><span class="p">({</span>
+                <span class="s">&quot;openid.ns.ax&quot;</span><span class="p">:</span> <span class="s">&quot;http://openid.net/srv/ax/1.0&quot;</span><span class="p">,</span>
+                <span class="s">&quot;openid.ax.mode&quot;</span><span class="p">:</span> <span class="s">&quot;fetch_request&quot;</span><span class="p">,</span>
+            <span class="p">})</span>
+            <span class="n">ax_attrs</span> <span class="o">=</span> <span class="nb">set</span><span class="p">(</span><span class="n">ax_attrs</span><span class="p">)</span>
+            <span class="n">required</span> <span class="o">=</span> <span class="p">[]</span>
+            <span class="k">if</span> <span class="s">&quot;name&quot;</span> <span class="ow">in</span> <span class="n">ax_attrs</span><span class="p">:</span>
+                <span class="n">ax_attrs</span> <span class="o">-=</span> <span class="nb">set</span><span class="p">([</span><span class="s">&quot;name&quot;</span><span class="p">,</span> <span class="s">&quot;firstname&quot;</span><span class="p">,</span> <span class="s">&quot;fullname&quot;</span><span class="p">,</span> <span class="s">&quot;lastname&quot;</span><span class="p">])</span>
+                <span class="n">required</span> <span class="o">+=</span> <span class="p">[</span><span class="s">&quot;firstname&quot;</span><span class="p">,</span> <span class="s">&quot;fullname&quot;</span><span class="p">,</span> <span class="s">&quot;lastname&quot;</span><span class="p">]</span>
+                <span class="n">args</span><span class="o">.</span><span class="n">update</span><span class="p">({</span>
+                    <span class="s">&quot;openid.ax.type.firstname&quot;</span><span class="p">:</span>
+                        <span class="s">&quot;http://axschema.org/namePerson/first&quot;</span><span class="p">,</span>
+                    <span class="s">&quot;openid.ax.type.fullname&quot;</span><span class="p">:</span>
+                        <span class="s">&quot;http://axschema.org/namePerson&quot;</span><span class="p">,</span>
+                    <span class="s">&quot;openid.ax.type.lastname&quot;</span><span class="p">:</span>
+                        <span class="s">&quot;http://axschema.org/namePerson/last&quot;</span><span class="p">,</span>
+                <span class="p">})</span>
+            <span class="n">known_attrs</span> <span class="o">=</span> <span class="p">{</span>
+                <span class="s">&quot;email&quot;</span><span class="p">:</span> <span class="s">&quot;http://axschema.org/contact/email&quot;</span><span class="p">,</span>
+                <span class="s">&quot;language&quot;</span><span class="p">:</span> <span class="s">&quot;http://axschema.org/pref/language&quot;</span><span class="p">,</span>
+                <span class="s">&quot;username&quot;</span><span class="p">:</span> <span class="s">&quot;http://axschema.org/namePerson/friendly&quot;</span><span class="p">,</span>
+            <span class="p">}</span>
+            <span class="k">for</span> <span class="n">name</span> <span class="ow">in</span> <span class="n">ax_attrs</span><span class="p">:</span>
+                <span class="n">args</span><span class="p">[</span><span class="s">&quot;openid.ax.type.&quot;</span> <span class="o">+</span> <span class="n">name</span><span class="p">]</span> <span class="o">=</span> <span class="n">known_attrs</span><span class="p">[</span><span class="n">name</span><span class="p">]</span>
+                <span class="n">required</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">name</span><span class="p">)</span>
+            <span class="n">args</span><span class="p">[</span><span class="s">&quot;openid.ax.required&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="s">&quot;,&quot;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">required</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">oauth_scope</span><span class="p">:</span>
+            <span class="n">args</span><span class="o">.</span><span class="n">update</span><span class="p">({</span>
+                <span class="s">&quot;openid.ns.oauth&quot;</span><span class="p">:</span>
+                    <span class="s">&quot;http://specs.openid.net/extensions/oauth/1.0&quot;</span><span class="p">,</span>
+                <span class="s">&quot;openid.oauth.consumer&quot;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">request</span><span class="o">.</span><span class="n">host</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s">&quot;:&quot;</span><span class="p">)[</span><span class="mi">0</span><span class="p">],</span>
+                <span class="s">&quot;openid.oauth.scope&quot;</span><span class="p">:</span> <span class="n">oauth_scope</span><span class="p">,</span>
+            <span class="p">})</span>
+        <span class="k">return</span> <span class="n">args</span>
+
+    <span class="k">def</span> <span class="nf">_on_authentication_verified</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">callback</span><span class="p">,</span> <span class="n">response</span><span class="p">):</span>
+        <span class="k">if</span> <span class="n">response</span><span class="o">.</span><span class="n">error</span> <span class="ow">or</span> <span class="s">&quot;is_valid:true&quot;</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">response</span><span class="o">.</span><span class="n">body</span><span class="p">:</span>
+            <span class="n">log</span><span class="o">.</span><span class="n">msg</span><span class="p">(</span><span class="s">&quot;Invalid OpenID response: </span><span class="si">%s</span><span class="s">&quot;</span> <span class="o">%</span>
+                    <span class="p">(</span><span class="n">response</span><span class="o">.</span><span class="n">error</span> <span class="ow">or</span> <span class="n">response</span><span class="o">.</span><span class="n">body</span><span class="p">))</span>
+            <span class="n">callback</span><span class="p">(</span><span class="bp">None</span><span class="p">)</span>
+            <span class="k">return</span>
+
+        <span class="c"># Make sure we got back at least an email from attribute exchange</span>
+        <span class="n">ax_ns</span> <span class="o">=</span> <span class="bp">None</span>
+        <span class="k">for</span> <span class="n">name</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">request</span><span class="o">.</span><span class="n">arguments</span><span class="o">.</span><span class="n">keys</span><span class="p">():</span>
+            <span class="k">if</span> <span class="n">name</span><span class="o">.</span><span class="n">startswith</span><span class="p">(</span><span class="s">&quot;openid.ns.&quot;</span><span class="p">)</span> <span class="ow">and</span> \
+               <span class="bp">self</span><span class="o">.</span><span class="n">get_argument</span><span class="p">(</span><span class="n">name</span><span class="p">)</span> <span class="o">==</span> <span class="s">u&quot;http://openid.net/srv/ax/1.0&quot;</span><span class="p">:</span>
+                <span class="n">ax_ns</span> <span class="o">=</span> <span class="n">name</span><span class="p">[</span><span class="mi">10</span><span class="p">:]</span>
+                <span class="k">break</span>
+
+        <span class="k">def</span> <span class="nf">get_ax_arg</span><span class="p">(</span><span class="n">uri</span><span class="p">):</span>
+            <span class="k">if</span> <span class="ow">not</span> <span class="n">ax_ns</span><span class="p">:</span>
+                <span class="k">return</span> <span class="s">u&quot;&quot;</span>
+            <span class="n">prefix</span> <span class="o">=</span> <span class="s">&quot;openid.&quot;</span> <span class="o">+</span> <span class="n">ax_ns</span> <span class="o">+</span> <span class="s">&quot;.type.&quot;</span>
+            <span class="n">ax_name</span> <span class="o">=</span> <span class="bp">None</span>
+            <span class="k">for</span> <span class="n">name</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">request</span><span class="o">.</span><span class="n">arguments</span><span class="o">.</span><span class="n">keys</span><span class="p">():</span>
+                <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_argument</span><span class="p">(</span><span class="n">name</span><span class="p">)</span> <span class="o">==</span> <span class="n">uri</span> <span class="ow">and</span> <span class="n">name</span><span class="o">.</span><span class="n">startswith</span><span class="p">(</span><span class="n">prefix</span><span class="p">):</span>
+                    <span class="n">part</span> <span class="o">=</span> <span class="n">name</span><span class="p">[</span><span class="nb">len</span><span class="p">(</span><span class="n">prefix</span><span class="p">):]</span>
+                    <span class="n">ax_name</span> <span class="o">=</span> <span class="s">&quot;openid.&quot;</span> <span class="o">+</span> <span class="n">ax_ns</span> <span class="o">+</span> <span class="s">&quot;.value.&quot;</span> <span class="o">+</span> <span class="n">part</span>
+                    <span class="k">break</span>
+            <span class="k">if</span> <span class="ow">not</span> <span class="n">ax_name</span><span class="p">:</span>
+                <span class="k">return</span> <span class="s">u&quot;&quot;</span>
+            <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_argument</span><span class="p">(</span><span class="n">ax_name</span><span class="p">,</span> <span class="s">u&quot;&quot;</span><span class="p">)</span>
+
+        <span class="n">email</span> <span class="o">=</span> <span class="n">get_ax_arg</span><span class="p">(</span><span class="s">&quot;http://axschema.org/contact/email&quot;</span><span class="p">)</span>
+        <span class="n">name</span> <span class="o">=</span> <span class="n">get_ax_arg</span><span class="p">(</span><span class="s">&quot;http://axschema.org/namePerson&quot;</span><span class="p">)</span>
+        <span class="n">first_name</span> <span class="o">=</span> <span class="n">get_ax_arg</span><span class="p">(</span><span class="s">&quot;http://axschema.org/namePerson/first&quot;</span><span class="p">)</span>
+        <span class="n">last_name</span> <span class="o">=</span> <span class="n">get_ax_arg</span><span class="p">(</span><span class="s">&quot;http://axschema.org/namePerson/last&quot;</span><span class="p">)</span>
+        <span class="n">username</span> <span class="o">=</span> <span class="n">get_ax_arg</span><span class="p">(</span><span class="s">&quot;http://axschema.org/namePerson/friendly&quot;</span><span class="p">)</span>
+        <span class="n">locale</span> <span class="o">=</span> <span class="n">get_ax_arg</span><span class="p">(</span><span class="s">&quot;http://axschema.org/pref/language&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">lower</span><span class="p">()</span>
+        <span class="n">user</span> <span class="o">=</span> <span class="nb">dict</span><span class="p">()</span>
+        <span class="n">name_parts</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="k">if</span> <span class="n">first_name</span><span class="p">:</span>
+            <span class="n">user</span><span class="p">[</span><span class="s">&quot;first_name&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">first_name</span>
+            <span class="n">name_parts</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">first_name</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">last_name</span><span class="p">:</span>
+            <span class="n">user</span><span class="p">[</span><span class="s">&quot;last_name&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">last_name</span>
+            <span class="n">name_parts</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">last_name</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">name</span><span class="p">:</span>
+            <span class="n">user</span><span class="p">[</span><span class="s">&quot;name&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">name</span>
+        <span class="k">elif</span> <span class="n">name_parts</span><span class="p">:</span>
+            <span class="n">user</span><span class="p">[</span><span class="s">&quot;name&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="s">u&quot; &quot;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">name_parts</span><span class="p">)</span>
+        <span class="k">elif</span> <span class="n">email</span><span class="p">:</span>
+            <span class="n">user</span><span class="p">[</span><span class="s">&quot;name&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">email</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s">&quot;@&quot;</span><span class="p">)[</span><span class="mi">0</span><span class="p">]</span>
+        <span class="k">if</span> <span class="n">email</span><span class="p">:</span>
+            <span class="n">user</span><span class="p">[</span><span class="s">&quot;email&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">email</span>
+        <span class="k">if</span> <span class="n">locale</span><span class="p">:</span>
+            <span class="n">user</span><span class="p">[</span><span class="s">&quot;locale&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">locale</span>
+        <span class="k">if</span> <span class="n">username</span><span class="p">:</span>
+            <span class="n">user</span><span class="p">[</span><span class="s">&quot;username&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">username</span>
+        <span class="n">claimed_id</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_argument</span><span class="p">(</span><span class="s">&quot;openid.claimed_id&quot;</span><span class="p">,</span> <span class="bp">None</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">claimed_id</span><span class="p">:</span>
+            <span class="n">user</span><span class="p">[</span><span class="s">&quot;claimed_id&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">claimed_id</span>
+        <span class="n">callback</span><span class="p">(</span><span class="n">user</span><span class="p">)</span>
+
+</div>
+<div class="viewcode-block" id="OAuthMixin"><a class="viewcode-back" href="../../auth.html#cyclone.auth.OAuthMixin">[docs]</a><span class="k">class</span> <span class="nc">OAuthMixin</span><span class="p">(</span><span class="nb">object</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;Abstract implementation of OAuth.</span>
+
+<span class="sd">    See TwitterMixin and FriendFeedMixin below for example implementations.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+<div class="viewcode-block" id="OAuthMixin.authorize_redirect"><a class="viewcode-back" href="../../auth.html#cyclone.auth.OAuthMixin.authorize_redirect">[docs]</a>    <span class="k">def</span> <span class="nf">authorize_redirect</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">callback_uri</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Redirects the user to obtain OAuth authorization for this service.</span>
+
+<span class="sd">        Twitter and FriendFeed both require that you register a Callback</span>
+<span class="sd">        URL with your application. You should call this method to log the</span>
+<span class="sd">        user in, and then call get_authenticated_user() in the handler</span>
+<span class="sd">        you registered as your Callback URL to complete the authorization</span>
+<span class="sd">        process.</span>
+
+<span class="sd">        This method sets a cookie called _oauth_request_token which is</span>
+<span class="sd">        subsequently used (and cleared) in get_authenticated_user for</span>
+<span class="sd">        security purposes.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="n">callback_uri</span> <span class="ow">and</span> <span class="nb">getattr</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="s">&quot;_OAUTH_NO_CALLBACKS&quot;</span><span class="p">,</span> <span class="bp">False</span><span class="p">):</span>
+            <span class="k">raise</span> <span class="ne">Exception</span><span class="p">(</span><span class="s">&quot;This service does not support oauth_callback&quot;</span><span class="p">)</span>
+        <span class="n">callback</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">async_callback</span><span class="p">(</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_on_request_token</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">_OAUTH_AUTHORIZE_URL</span><span class="p">,</span> <span class="n">callback_uri</span><span class="p">)</span>
+        <span class="n">httpclient</span><span class="o">.</span><span class="n">fetch</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_oauth_request_token_url</span><span class="p">())</span><span class="o">.</span><span class="n">addCallback</span><span class="p">(</span><span class="n">callback</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="OAuthMixin.get_authenticated_user"><a class="viewcode-back" href="../../auth.html#cyclone.auth.OAuthMixin.get_authenticated_user">[docs]</a>    <span class="k">def</span> <span class="nf">get_authenticated_user</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">callback</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Gets the OAuth authorized user and access token on callback.</span>
+
+<span class="sd">        This method should be called from the handler for your registered</span>
+<span class="sd">        OAuth Callback URL to complete the registration process. We call</span>
+<span class="sd">        callback with the authenticated user, which in addition to standard</span>
+<span class="sd">        attributes like &#39;name&#39; includes the &#39;access_key&#39; attribute, which</span>
+<span class="sd">        contains the OAuth access you can use to make authorized requests</span>
+<span class="sd">        to this service on behalf of the user.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">request_key</span> <span class="o">=</span> <span class="n">escape</span><span class="o">.</span><span class="n">utf8</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">get_argument</span><span class="p">(</span><span class="s">&quot;oauth_token&quot;</span><span class="p">))</span>
+        <span class="n">oauth_verifier</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_argument</span><span class="p">(</span><span class="s">&quot;oauth_verifier&quot;</span><span class="p">,</span> <span class="bp">None</span><span class="p">)</span>
+        <span class="n">request_cookie</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_cookie</span><span class="p">(</span><span class="s">&quot;_oauth_request_token&quot;</span><span class="p">)</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">request_cookie</span><span class="p">:</span>
+            <span class="n">log</span><span class="o">.</span><span class="n">msg</span><span class="p">(</span><span class="s">&quot;Missing OAuth request token cookie&quot;</span><span class="p">)</span>
+            <span class="n">callback</span><span class="p">(</span><span class="bp">None</span><span class="p">)</span>
+            <span class="k">return</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">clear_cookie</span><span class="p">(</span><span class="s">&quot;_oauth_request_token&quot;</span><span class="p">)</span>
+        <span class="n">cookie_key</span><span class="p">,</span> <span class="n">cookie_secret</span> <span class="o">=</span> <span class="p">[</span><span class="n">base64</span><span class="o">.</span><span class="n">b64decode</span><span class="p">(</span><span class="n">escape</span><span class="o">.</span><span class="n">utf8</span><span class="p">(</span><span class="n">i</span><span class="p">))</span>
+                                     <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="n">request_cookie</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s">&quot;|&quot;</span><span class="p">)]</span>
+        <span class="k">if</span> <span class="n">cookie_key</span> <span class="o">!=</span> <span class="n">request_key</span><span class="p">:</span>
+            <span class="n">log</span><span class="o">.</span><span class="n">msg</span><span class="p">(</span><span class="s">&quot;Request token does not match cookie&quot;</span><span class="p">)</span>
+            <span class="n">callback</span><span class="p">(</span><span class="bp">None</span><span class="p">)</span>
+            <span class="k">return</span>
+        <span class="n">token</span> <span class="o">=</span> <span class="nb">dict</span><span class="p">(</span><span class="n">key</span><span class="o">=</span><span class="n">cookie_key</span><span class="p">,</span> <span class="n">secret</span><span class="o">=</span><span class="n">cookie_secret</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">oauth_verifier</span><span class="p">:</span>
+            <span class="n">token</span><span class="p">[</span><span class="s">&quot;verifier&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">oauth_verifier</span>
+        <span class="n">d</span> <span class="o">=</span> <span class="n">httpclient</span><span class="o">.</span><span class="n">fetch</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_oauth_access_token_url</span><span class="p">(</span><span class="n">token</span><span class="p">))</span>
+        <span class="n">d</span><span class="o">.</span><span class="n">addCallback</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">async_callback</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_on_access_token</span><span class="p">,</span> <span class="n">callback</span><span class="p">))</span>
+</div>
+    <span class="k">def</span> <span class="nf">_oauth_request_token_url</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">callback_uri</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="n">extra_params</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+        <span class="n">consumer_token</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_oauth_consumer_token</span><span class="p">()</span>
+        <span class="n">url</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_OAUTH_REQUEST_TOKEN_URL</span>
+        <span class="n">args</span> <span class="o">=</span> <span class="nb">dict</span><span class="p">(</span>
+            <span class="n">oauth_consumer_key</span><span class="o">=</span><span class="n">escape</span><span class="o">.</span><span class="n">to_basestring</span><span class="p">(</span><span class="n">consumer_token</span><span class="p">[</span><span class="s">&quot;key&quot;</span><span class="p">]),</span>
+            <span class="n">oauth_signature_method</span><span class="o">=</span><span class="s">&quot;HMAC-SHA1&quot;</span><span class="p">,</span>
+            <span class="n">oauth_timestamp</span><span class="o">=</span><span class="nb">str</span><span class="p">(</span><span class="nb">int</span><span class="p">(</span><span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">())),</span>
+            <span class="n">oauth_nonce</span><span class="o">=</span><span class="n">escape</span><span class="o">.</span><span class="n">to_basestring</span><span class="p">(</span><span class="n">binascii</span><span class="o">.</span><span class="n">b2a_hex</span><span class="p">(</span>
+                                             <span class="n">uuid</span><span class="o">.</span><span class="n">uuid4</span><span class="p">()</span><span class="o">.</span><span class="n">bytes</span><span class="p">)),</span>
+            <span class="n">oauth_version</span><span class="o">=</span><span class="nb">getattr</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="s">&quot;_OAUTH_VERSION&quot;</span><span class="p">,</span> <span class="s">&quot;1.0a&quot;</span><span class="p">),</span>
+        <span class="p">)</span>
+        <span class="k">if</span> <span class="nb">getattr</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="s">&quot;_OAUTH_VERSION&quot;</span><span class="p">,</span> <span class="s">&quot;1.0a&quot;</span><span class="p">)</span> <span class="o">==</span> <span class="s">&quot;1.0a&quot;</span><span class="p">:</span>
+            <span class="k">if</span> <span class="n">callback_uri</span> <span class="o">==</span> <span class="s">&quot;oob&quot;</span><span class="p">:</span>
+                <span class="n">args</span><span class="p">[</span><span class="s">&quot;oauth_callback&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="s">&quot;oob&quot;</span>
+            <span class="k">elif</span> <span class="n">callback_uri</span><span class="p">:</span>
+                <span class="n">args</span><span class="p">[</span><span class="s">&quot;oauth_callback&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">urlparse</span><span class="o">.</span><span class="n">urljoin</span><span class="p">(</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">request</span><span class="o">.</span><span class="n">full_url</span><span class="p">(),</span> <span class="n">callback_uri</span><span class="p">)</span>
+            <span class="k">if</span> <span class="n">extra_params</span><span class="p">:</span>
+                <span class="n">args</span><span class="o">.</span><span class="n">update</span><span class="p">(</span><span class="n">extra_params</span><span class="p">)</span>
+            <span class="n">signature</span> <span class="o">=</span> <span class="n">_oauth10a_signature</span><span class="p">(</span><span class="n">consumer_token</span><span class="p">,</span> <span class="s">&quot;GET&quot;</span><span class="p">,</span> <span class="n">url</span><span class="p">,</span> <span class="n">args</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">signature</span> <span class="o">=</span> <span class="n">_oauth_signature</span><span class="p">(</span><span class="n">consumer_token</span><span class="p">,</span> <span class="s">&quot;GET&quot;</span><span class="p">,</span> <span class="n">url</span><span class="p">,</span> <span class="n">args</span><span class="p">)</span>
+
+        <span class="n">args</span><span class="p">[</span><span class="s">&quot;oauth_signature&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">signature</span>
+        <span class="k">return</span> <span class="n">url</span> <span class="o">+</span> <span class="s">&quot;?&quot;</span> <span class="o">+</span> <span class="n">urllib</span><span class="o">.</span><span class="n">urlencode</span><span class="p">(</span><span class="n">args</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">_on_request_token</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">authorize_url</span><span class="p">,</span> <span class="n">callback_uri</span><span class="p">,</span> <span class="n">response</span><span class="p">):</span>
+        <span class="k">if</span> <span class="n">response</span><span class="o">.</span><span class="n">error</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">Exception</span><span class="p">(</span><span class="s">&quot;Could not get request token&quot;</span><span class="p">)</span>
+        <span class="n">request_token</span> <span class="o">=</span> <span class="n">_oauth_parse_response</span><span class="p">(</span><span class="n">response</span><span class="o">.</span><span class="n">body</span><span class="p">)</span>
+        <span class="n">data</span> <span class="o">=</span> <span class="p">(</span><span class="n">base64</span><span class="o">.</span><span class="n">b64encode</span><span class="p">(</span><span class="n">request_token</span><span class="p">[</span><span class="s">&quot;key&quot;</span><span class="p">])</span> <span class="o">+</span> <span class="s">&quot;|&quot;</span> <span class="o">+</span>
+                <span class="n">base64</span><span class="o">.</span><span class="n">b64encode</span><span class="p">(</span><span class="n">request_token</span><span class="p">[</span><span class="s">&quot;secret&quot;</span><span class="p">]))</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">set_cookie</span><span class="p">(</span><span class="s">&quot;_oauth_request_token&quot;</span><span class="p">,</span> <span class="n">data</span><span class="p">)</span>
+        <span class="n">args</span> <span class="o">=</span> <span class="nb">dict</span><span class="p">(</span><span class="n">oauth_token</span><span class="o">=</span><span class="n">request_token</span><span class="p">[</span><span class="s">&quot;key&quot;</span><span class="p">])</span>
+        <span class="k">if</span> <span class="n">callback_uri</span> <span class="o">==</span> <span class="s">&quot;oob&quot;</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">finish</span><span class="p">(</span><span class="n">authorize_url</span> <span class="o">+</span> <span class="s">&quot;?&quot;</span> <span class="o">+</span> <span class="n">urllib</span><span class="o">.</span><span class="n">urlencode</span><span class="p">(</span><span class="n">args</span><span class="p">))</span>
+            <span class="k">return</span>
+        <span class="k">elif</span> <span class="n">callback_uri</span><span class="p">:</span>
+            <span class="n">args</span><span class="p">[</span><span class="s">&quot;oauth_callback&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">urlparse</span><span class="o">.</span><span class="n">urljoin</span><span class="p">(</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">request</span><span class="o">.</span><span class="n">full_url</span><span class="p">(),</span> <span class="n">callback_uri</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">redirect</span><span class="p">(</span><span class="n">authorize_url</span> <span class="o">+</span> <span class="s">&quot;?&quot;</span> <span class="o">+</span> <span class="n">urllib</span><span class="o">.</span><span class="n">urlencode</span><span class="p">(</span><span class="n">args</span><span class="p">))</span>
+
+    <span class="k">def</span> <span class="nf">_oauth_access_token_url</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">request_token</span><span class="p">):</span>
+        <span class="n">consumer_token</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_oauth_consumer_token</span><span class="p">()</span>
+        <span class="n">url</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_OAUTH_ACCESS_TOKEN_URL</span>
+        <span class="n">args</span> <span class="o">=</span> <span class="nb">dict</span><span class="p">(</span>
+            <span class="n">oauth_consumer_key</span><span class="o">=</span><span class="n">escape</span><span class="o">.</span><span class="n">to_basestring</span><span class="p">(</span><span class="n">consumer_token</span><span class="p">[</span><span class="s">&quot;key&quot;</span><span class="p">]),</span>
+            <span class="n">oauth_token</span><span class="o">=</span><span class="n">escape</span><span class="o">.</span><span class="n">to_basestring</span><span class="p">(</span><span class="n">request_token</span><span class="p">[</span><span class="s">&quot;key&quot;</span><span class="p">]),</span>
+            <span class="n">oauth_signature_method</span><span class="o">=</span><span class="s">&quot;HMAC-SHA1&quot;</span><span class="p">,</span>
+            <span class="n">oauth_timestamp</span><span class="o">=</span><span class="nb">str</span><span class="p">(</span><span class="nb">int</span><span class="p">(</span><span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">())),</span>
+            <span class="n">oauth_nonce</span><span class="o">=</span><span class="n">escape</span><span class="o">.</span><span class="n">to_basestring</span><span class="p">(</span><span class="n">binascii</span><span class="o">.</span><span class="n">b2a_hex</span><span class="p">(</span>
+                                             <span class="n">uuid</span><span class="o">.</span><span class="n">uuid4</span><span class="p">()</span><span class="o">.</span><span class="n">bytes</span><span class="p">)),</span>
+            <span class="n">oauth_version</span><span class="o">=</span><span class="nb">getattr</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="s">&quot;_OAUTH_VERSION&quot;</span><span class="p">,</span> <span class="s">&quot;1.0a&quot;</span><span class="p">),</span>
+        <span class="p">)</span>
+        <span class="k">if</span> <span class="s">&quot;verifier&quot;</span> <span class="ow">in</span> <span class="n">request_token</span><span class="p">:</span>
+            <span class="n">args</span><span class="p">[</span><span class="s">&quot;oauth_verifier&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">request_token</span><span class="p">[</span><span class="s">&quot;verifier&quot;</span><span class="p">]</span>
+
+        <span class="k">if</span> <span class="nb">getattr</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="s">&quot;_OAUTH_VERSION&quot;</span><span class="p">,</span> <span class="s">&quot;1.0a&quot;</span><span class="p">)</span> <span class="o">==</span> <span class="s">&quot;1.0a&quot;</span><span class="p">:</span>
+            <span class="n">signature</span> <span class="o">=</span> <span class="n">_oauth10a_signature</span><span class="p">(</span><span class="n">consumer_token</span><span class="p">,</span> <span class="s">&quot;GET&quot;</span><span class="p">,</span> <span class="n">url</span><span class="p">,</span> <span class="n">args</span><span class="p">,</span>
+                                            <span class="n">request_token</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">signature</span> <span class="o">=</span> <span class="n">_oauth_signature</span><span class="p">(</span><span class="n">consumer_token</span><span class="p">,</span> <span class="s">&quot;GET&quot;</span><span class="p">,</span> <span class="n">url</span><span class="p">,</span> <span class="n">args</span><span class="p">,</span>
+                                         <span class="n">request_token</span><span class="p">)</span>
+
+        <span class="n">args</span><span class="p">[</span><span class="s">&quot;oauth_signature&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">signature</span>
+        <span class="k">return</span> <span class="n">url</span> <span class="o">+</span> <span class="s">&quot;?&quot;</span> <span class="o">+</span> <span class="n">urllib</span><span class="o">.</span><span class="n">urlencode</span><span class="p">(</span><span class="n">args</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">_on_access_token</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">callback</span><span class="p">,</span> <span class="n">response</span><span class="p">):</span>
+        <span class="k">if</span> <span class="n">response</span><span class="o">.</span><span class="n">error</span><span class="p">:</span>
+            <span class="n">log</span><span class="o">.</span><span class="n">msg</span><span class="p">(</span><span class="s">&quot;Could not fetch access token&quot;</span><span class="p">)</span>
+            <span class="n">callback</span><span class="p">(</span><span class="bp">None</span><span class="p">)</span>
+            <span class="k">return</span>
+
+        <span class="n">access_token</span> <span class="o">=</span> <span class="n">_oauth_parse_response</span><span class="p">(</span><span class="n">response</span><span class="o">.</span><span class="n">body</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_oauth_get_user</span><span class="p">(</span><span class="n">access_token</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">async_callback</span><span class="p">(</span>
+             <span class="bp">self</span><span class="o">.</span><span class="n">_on_oauth_get_user</span><span class="p">,</span> <span class="n">access_token</span><span class="p">,</span> <span class="n">callback</span><span class="p">))</span>
+
+    <span class="k">def</span> <span class="nf">_oauth_get_user</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">access_token</span><span class="p">,</span> <span class="n">callback</span><span class="p">):</span>
+        <span class="k">raise</span> <span class="ne">NotImplementedError</span><span class="p">()</span>
+
+    <span class="k">def</span> <span class="nf">_on_oauth_get_user</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">access_token</span><span class="p">,</span> <span class="n">callback</span><span class="p">,</span> <span class="n">user</span><span class="p">):</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">user</span><span class="p">:</span>
+            <span class="n">callback</span><span class="p">(</span><span class="bp">None</span><span class="p">)</span>
+            <span class="k">return</span>
+        <span class="n">user</span><span class="p">[</span><span class="s">&quot;access_token&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">access_token</span>
+        <span class="n">callback</span><span class="p">(</span><span class="n">user</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">_oauth_request_parameters</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">url</span><span class="p">,</span> <span class="n">access_token</span><span class="p">,</span> <span class="n">parameters</span><span class="o">=</span><span class="p">{},</span>
+                                  <span class="n">method</span><span class="o">=</span><span class="s">&quot;GET&quot;</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Returns the OAuth parameters as a dict for the given request.</span>
+
+<span class="sd">        parameters should include all POST arguments and query string arguments</span>
+<span class="sd">        that will be sent with the request.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">consumer_token</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_oauth_consumer_token</span><span class="p">()</span>
+        <span class="n">base_args</span> <span class="o">=</span> <span class="nb">dict</span><span class="p">(</span>
+            <span class="n">oauth_consumer_key</span><span class="o">=</span><span class="n">escape</span><span class="o">.</span><span class="n">to_basestring</span><span class="p">(</span><span class="n">consumer_token</span><span class="p">[</span><span class="s">&quot;key&quot;</span><span class="p">]),</span>
+            <span class="n">oauth_token</span><span class="o">=</span><span class="n">escape</span><span class="o">.</span><span class="n">to_basestring</span><span class="p">(</span><span class="n">access_token</span><span class="p">[</span><span class="s">&quot;key&quot;</span><span class="p">]),</span>
+            <span class="n">oauth_signature_method</span><span class="o">=</span><span class="s">&quot;HMAC-SHA1&quot;</span><span class="p">,</span>
+            <span class="n">oauth_timestamp</span><span class="o">=</span><span class="nb">str</span><span class="p">(</span><span class="nb">int</span><span class="p">(</span><span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">())),</span>
+            <span class="n">oauth_nonce</span><span class="o">=</span><span class="n">escape</span><span class="o">.</span><span class="n">to_basestring</span><span class="p">(</span><span class="n">binascii</span><span class="o">.</span><span class="n">b2a_hex</span><span class="p">(</span>
+                                             <span class="n">uuid</span><span class="o">.</span><span class="n">uuid4</span><span class="p">()</span><span class="o">.</span><span class="n">bytes</span><span class="p">)),</span>
+            <span class="n">oauth_version</span><span class="o">=</span><span class="nb">getattr</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="s">&quot;_OAUTH_VERSION&quot;</span><span class="p">,</span> <span class="s">&quot;1.0a&quot;</span><span class="p">),</span>
+        <span class="p">)</span>
+        <span class="n">args</span> <span class="o">=</span> <span class="p">{}</span>
+        <span class="n">args</span><span class="o">.</span><span class="n">update</span><span class="p">(</span><span class="n">base_args</span><span class="p">)</span>
+        <span class="n">args</span><span class="o">.</span><span class="n">update</span><span class="p">(</span><span class="n">parameters</span><span class="p">)</span>
+        <span class="k">if</span> <span class="nb">getattr</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="s">&quot;_OAUTH_VERSION&quot;</span><span class="p">,</span> <span class="s">&quot;1.0a&quot;</span><span class="p">)</span> <span class="o">==</span> <span class="s">&quot;1.0a&quot;</span><span class="p">:</span>
+            <span class="n">signature</span> <span class="o">=</span> <span class="n">_oauth10a_signature</span><span class="p">(</span><span class="n">consumer_token</span><span class="p">,</span> <span class="n">method</span><span class="p">,</span> <span class="n">url</span><span class="p">,</span> <span class="n">args</span><span class="p">,</span>
+                                         <span class="n">access_token</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">signature</span> <span class="o">=</span> <span class="n">_oauth_signature</span><span class="p">(</span><span class="n">consumer_token</span><span class="p">,</span> <span class="n">method</span><span class="p">,</span> <span class="n">url</span><span class="p">,</span> <span class="n">args</span><span class="p">,</span>
+                                         <span class="n">access_token</span><span class="p">)</span>
+        <span class="n">base_args</span><span class="p">[</span><span class="s">&quot;oauth_signature&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">signature</span>
+        <span class="k">return</span> <span class="n">base_args</span>
+
+</div>
+<div class="viewcode-block" id="OAuth2Mixin"><a class="viewcode-back" href="../../auth.html#cyclone.auth.OAuth2Mixin">[docs]</a><span class="k">class</span> <span class="nc">OAuth2Mixin</span><span class="p">(</span><span class="nb">object</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;Abstract implementation of OAuth v 2.&quot;&quot;&quot;</span>
+
+<div class="viewcode-block" id="OAuth2Mixin.authorize_redirect"><a class="viewcode-back" href="../../auth.html#cyclone.auth.OAuth2Mixin.authorize_redirect">[docs]</a>    <span class="k">def</span> <span class="nf">authorize_redirect</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">redirect_uri</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="n">client_id</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span>
+                           <span class="n">client_secret</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="n">extra_params</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Redirects the user to obtain OAuth authorization for this service.</span>
+
+<span class="sd">        Some providers require that you register a Callback</span>
+<span class="sd">        URL with your application. You should call this method to log the</span>
+<span class="sd">        user in, and then call get_authenticated_user() in the handler</span>
+<span class="sd">        you registered as your Callback URL to complete the authorization</span>
+<span class="sd">        process.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">args</span> <span class="o">=</span> <span class="p">{</span>
+          <span class="s">&quot;redirect_uri&quot;</span><span class="p">:</span> <span class="n">redirect_uri</span><span class="p">,</span>
+          <span class="s">&quot;client_id&quot;</span><span class="p">:</span> <span class="n">client_id</span>
+        <span class="p">}</span>
+        <span class="k">if</span> <span class="n">extra_params</span><span class="p">:</span>
+            <span class="n">args</span><span class="o">.</span><span class="n">update</span><span class="p">(</span><span class="n">extra_params</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">redirect</span><span class="p">(</span>
+                <span class="n">url_concat</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_OAUTH_AUTHORIZE_URL</span><span class="p">,</span> <span class="n">args</span><span class="p">))</span>
+</div>
+    <span class="k">def</span> <span class="nf">_oauth_request_token_url</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">redirect_uri</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="n">client_id</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span>
+                                 <span class="n">client_secret</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="n">code</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span>
+                                 <span class="n">extra_params</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+        <span class="n">url</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_OAUTH_ACCESS_TOKEN_URL</span>
+        <span class="n">args</span> <span class="o">=</span> <span class="nb">dict</span><span class="p">(</span>
+            <span class="n">redirect_uri</span><span class="o">=</span><span class="n">redirect_uri</span><span class="p">,</span>
+            <span class="n">code</span><span class="o">=</span><span class="n">code</span><span class="p">,</span>
+            <span class="n">client_id</span><span class="o">=</span><span class="n">client_id</span><span class="p">,</span>
+            <span class="n">client_secret</span><span class="o">=</span><span class="n">client_secret</span><span class="p">,</span>
+            <span class="p">)</span>
+        <span class="k">if</span> <span class="n">extra_params</span><span class="p">:</span>
+            <span class="n">args</span><span class="o">.</span><span class="n">update</span><span class="p">(</span><span class="n">extra_params</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">url_concat</span><span class="p">(</span><span class="n">url</span><span class="p">,</span> <span class="n">args</span><span class="p">)</span>
+
+</div>
+<div class="viewcode-block" id="TwitterMixin"><a class="viewcode-back" href="../../auth.html#cyclone.auth.TwitterMixin">[docs]</a><span class="k">class</span> <span class="nc">TwitterMixin</span><span class="p">(</span><span class="n">OAuthMixin</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;Twitter OAuth authentication.</span>
+
+<span class="sd">    To authenticate with Twitter, register your application with</span>
+<span class="sd">    Twitter at http://twitter.com/apps. Then copy your Consumer Key and</span>
+<span class="sd">    Consumer Secret to the application settings &#39;twitter_consumer_key&#39; and</span>
+<span class="sd">    &#39;twitter_consumer_secret&#39;. Use this Mixin on the handler for the URL</span>
+<span class="sd">    you registered as your application&#39;s Callback URL.</span>
+
+<span class="sd">    When your application is set up, you can use this Mixin like this</span>
+<span class="sd">    to authenticate the user with Twitter and get access to their stream::</span>
+
+<span class="sd">        class TwitterHandler(cyclone.web.RequestHandler,</span>
+<span class="sd">                             cyclone.auth.TwitterMixin):</span>
+<span class="sd">            @cyclone.web.asynchronous</span>
+<span class="sd">            def get(self):</span>
+<span class="sd">                if self.get_argument(&quot;oauth_token&quot;, None):</span>
+<span class="sd">                    self.get_authenticated_user(</span>
+<span class="sd">                                        self.async_callback(self._on_auth))</span>
+<span class="sd">                    return</span>
+<span class="sd">                self.authorize_redirect()</span>
+
+<span class="sd">            def _on_auth(self, user):</span>
+<span class="sd">                if not user:</span>
+<span class="sd">                    raise cyclone.web.HTTPError(500, &quot;Twitter auth failed&quot;)</span>
+<span class="sd">                # Save the user using, e.g., set_secure_cookie()</span>
+
+<span class="sd">    The user object returned by get_authenticated_user() includes the</span>
+<span class="sd">    attributes &#39;username&#39;, &#39;name&#39;, and all of the custom Twitter user</span>
+<span class="sd">    attributes describe at</span>
+<span class="sd">    http://apiwiki.twitter.com/Twitter-REST-API-Method%3A-users%C2%A0show</span>
+<span class="sd">    in addition to &#39;access_token&#39;. You should save the access token with</span>
+<span class="sd">    the user; it is required to make requests on behalf of the user later</span>
+<span class="sd">    with twitter_request().</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">_OAUTH_REQUEST_TOKEN_URL</span> <span class="o">=</span> <span class="s">&quot;http://api.twitter.com/oauth/request_token&quot;</span>
+    <span class="n">_OAUTH_ACCESS_TOKEN_URL</span> <span class="o">=</span> <span class="s">&quot;http://api.twitter.com/oauth/access_token&quot;</span>
+    <span class="n">_OAUTH_AUTHORIZE_URL</span> <span class="o">=</span> <span class="s">&quot;http://api.twitter.com/oauth/authorize&quot;</span>
+    <span class="n">_OAUTH_AUTHENTICATE_URL</span> <span class="o">=</span> <span class="s">&quot;http://api.twitter.com/oauth/authenticate&quot;</span>
+    <span class="n">_OAUTH_NO_CALLBACKS</span> <span class="o">=</span> <span class="bp">False</span>
+    <span class="n">_TWITTER_BASE_URL</span> <span class="o">=</span> <span class="s">&quot;http://api.twitter.com/1&quot;</span>
+
+<div class="viewcode-block" id="TwitterMixin.authenticate_redirect"><a class="viewcode-back" href="../../auth.html#cyclone.auth.TwitterMixin.authenticate_redirect">[docs]</a>    <span class="k">def</span> <span class="nf">authenticate_redirect</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Just like authorize_redirect(), but auto-redirects if authorized.</span>
+
+<span class="sd">        This is generally the right interface to use if you are using</span>
+<span class="sd">        Twitter for single-sign on.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">httpclient</span><span class="o">.</span><span class="n">fetch</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_oauth_request_token_url</span><span class="p">())</span><span class="o">.</span><span class="n">addCallback</span><span class="p">(</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">async_callback</span><span class="p">(</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_on_request_token</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">_OAUTH_AUTHENTICATE_URL</span><span class="p">,</span> <span class="bp">None</span><span class="p">))</span>
+</div>
+<div class="viewcode-block" id="TwitterMixin.twitter_request"><a class="viewcode-back" href="../../auth.html#cyclone.auth.TwitterMixin.twitter_request">[docs]</a>    <span class="k">def</span> <span class="nf">twitter_request</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">path</span><span class="p">,</span> <span class="n">callback</span><span class="p">,</span> <span class="n">access_token</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span>
+                           <span class="n">post_args</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="o">**</span><span class="n">args</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Fetches the given API path, e.g., &quot;/statuses/user_timeline/btaylor&quot;</span>
+
+<span class="sd">        The path should not include the format (we automatically append</span>
+<span class="sd">        &quot;.json&quot; and parse the JSON output).</span>
+
+<span class="sd">        If the request is a POST, post_args should be provided. Query</span>
+<span class="sd">        string arguments should be given as keyword arguments.</span>
+
+<span class="sd">        All the Twitter methods are documented at</span>
+<span class="sd">        http://apiwiki.twitter.com/Twitter-API-Documentation.</span>
+
+<span class="sd">        Many methods require an OAuth access token which you can obtain</span>
+<span class="sd">        through authorize_redirect() and get_authenticated_user(). The</span>
+<span class="sd">        user returned through that process includes an &#39;access_token&#39;</span>
+<span class="sd">        attribute that can be used to make authenticated requests via</span>
+<span class="sd">        this method. Example usage::</span>
+
+<span class="sd">            class MainHandler(cyclone.web.RequestHandler,</span>
+<span class="sd">                              cyclone.auth.TwitterMixin):</span>
+<span class="sd">                @cyclone.web.authenticated</span>
+<span class="sd">                @cyclone.web.asynchronous</span>
+<span class="sd">                def get(self):</span>
+<span class="sd">                    self.twitter_request(</span>
+<span class="sd">                        &quot;/statuses/update&quot;,</span>
+<span class="sd">                        post_args={&quot;status&quot;: &quot;Testing cyclone Web Server&quot;},</span>
+<span class="sd">                        access_token=user[&quot;access_token&quot;],</span>
+<span class="sd">                        callback=self.async_callback(self._on_post))</span>
+
+<span class="sd">                def _on_post(self, new_entry):</span>
+<span class="sd">                    if not new_entry:</span>
+<span class="sd">                        # Call failed; perhaps missing permission?</span>
+<span class="sd">                        self.authorize_redirect()</span>
+<span class="sd">                        return</span>
+<span class="sd">                    self.finish(&quot;Posted a message!&quot;)</span>
+
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="n">path</span><span class="o">.</span><span class="n">startswith</span><span class="p">(</span><span class="s">&#39;http:&#39;</span><span class="p">)</span> <span class="ow">or</span> <span class="n">path</span><span class="o">.</span><span class="n">startswith</span><span class="p">(</span><span class="s">&#39;https:&#39;</span><span class="p">):</span>
+            <span class="c"># Raw urls are useful for e.g. search which doesn&#39;t follow the</span>
+            <span class="c"># usual pattern: http://search.twitter.com/search.json</span>
+            <span class="n">url</span> <span class="o">=</span> <span class="n">path</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">url</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_TWITTER_BASE_URL</span> <span class="o">+</span> <span class="n">path</span> <span class="o">+</span> <span class="s">&quot;.json&quot;</span>
+        <span class="c"># Add the OAuth resource request signature if we have credentials</span>
+        <span class="n">url</span> <span class="o">=</span> <span class="s">&quot;http://twitter.com&quot;</span> <span class="o">+</span> <span class="n">path</span> <span class="o">+</span> <span class="s">&quot;.json&quot;</span>
+        <span class="k">if</span> <span class="n">access_token</span><span class="p">:</span>
+            <span class="n">all_args</span> <span class="o">=</span> <span class="p">{}</span>
+            <span class="n">all_args</span><span class="o">.</span><span class="n">update</span><span class="p">(</span><span class="n">args</span><span class="p">)</span>
+            <span class="n">all_args</span><span class="o">.</span><span class="n">update</span><span class="p">(</span><span class="n">post_args</span> <span class="ow">or</span> <span class="p">{})</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_oauth_consumer_token</span><span class="p">()</span>
+            <span class="n">method</span> <span class="o">=</span> <span class="s">&quot;POST&quot;</span> <span class="k">if</span> <span class="n">post_args</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span> <span class="k">else</span> <span class="s">&quot;GET&quot;</span>
+            <span class="n">oauth</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_oauth_request_parameters</span><span class="p">(</span>
+                <span class="n">url</span><span class="p">,</span> <span class="n">access_token</span><span class="p">,</span> <span class="n">all_args</span><span class="p">,</span> <span class="n">method</span><span class="o">=</span><span class="n">method</span><span class="p">)</span>
+            <span class="n">args</span><span class="o">.</span><span class="n">update</span><span class="p">(</span><span class="n">oauth</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">args</span><span class="p">:</span>
+            <span class="n">url</span> <span class="o">+=</span> <span class="s">&quot;?&quot;</span> <span class="o">+</span> <span class="n">urllib</span><span class="o">.</span><span class="n">urlencode</span><span class="p">(</span><span class="n">args</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">post_args</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="n">d</span> <span class="o">=</span> <span class="n">httpclient</span><span class="o">.</span><span class="n">fetch</span><span class="p">(</span><span class="n">url</span><span class="p">,</span> <span class="n">method</span><span class="o">=</span><span class="s">&quot;POST&quot;</span><span class="p">,</span>
+                                 <span class="n">postdata</span><span class="o">=</span><span class="n">urllib</span><span class="o">.</span><span class="n">urlencode</span><span class="p">(</span><span class="n">post_args</span><span class="p">))</span>
+            <span class="n">d</span><span class="o">.</span><span class="n">addCallback</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">async_callback</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_on_twitter_request</span><span class="p">,</span>
+                          <span class="n">callback</span><span class="p">))</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">d</span> <span class="o">=</span> <span class="n">httpclient</span><span class="o">.</span><span class="n">fetch</span><span class="p">(</span><span class="n">url</span><span class="p">)</span>
+            <span class="n">d</span><span class="o">.</span><span class="n">addCallback</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">async_callback</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_on_twitter_request</span><span class="p">,</span>
+                          <span class="n">callback</span><span class="p">))</span>
+</div>
+    <span class="k">def</span> <span class="nf">_on_twitter_request</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">callback</span><span class="p">,</span> <span class="n">response</span><span class="p">):</span>
+        <span class="k">if</span> <span class="n">response</span><span class="o">.</span><span class="n">error</span><span class="p">:</span>
+            <span class="n">log</span><span class="o">.</span><span class="n">msg</span><span class="p">(</span><span class="s">&quot;Error response </span><span class="si">%s</span><span class="s"> fetching </span><span class="si">%s</span><span class="s">&quot;</span> <span class="o">%</span> <span class="p">(</span><span class="n">response</span><span class="o">.</span><span class="n">error</span><span class="p">,</span>
+                            <span class="n">response</span><span class="o">.</span><span class="n">request</span><span class="o">.</span><span class="n">url</span><span class="p">))</span>
+            <span class="n">callback</span><span class="p">(</span><span class="bp">None</span><span class="p">)</span>
+            <span class="k">return</span>
+        <span class="n">callback</span><span class="p">(</span><span class="n">escape</span><span class="o">.</span><span class="n">json_decode</span><span class="p">(</span><span class="n">response</span><span class="o">.</span><span class="n">body</span><span class="p">))</span>
+
+    <span class="k">def</span> <span class="nf">_oauth_consumer_token</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">require_setting</span><span class="p">(</span><span class="s">&quot;twitter_consumer_key&quot;</span><span class="p">,</span> <span class="s">&quot;Twitter OAuth&quot;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">require_setting</span><span class="p">(</span><span class="s">&quot;twitter_consumer_secret&quot;</span><span class="p">,</span> <span class="s">&quot;Twitter OAuth&quot;</span><span class="p">)</span>
+        <span class="k">return</span> <span class="nb">dict</span><span class="p">(</span>
+            <span class="n">key</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">settings</span><span class="p">[</span><span class="s">&quot;twitter_consumer_key&quot;</span><span class="p">],</span>
+            <span class="n">secret</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">settings</span><span class="p">[</span><span class="s">&quot;twitter_consumer_secret&quot;</span><span class="p">])</span>
+
+    <span class="k">def</span> <span class="nf">_oauth_get_user</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">access_token</span><span class="p">,</span> <span class="n">callback</span><span class="p">):</span>
+        <span class="n">callback</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">async_callback</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_parse_user_response</span><span class="p">,</span> <span class="n">callback</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">twitter_request</span><span class="p">(</span>
+            <span class="s">&quot;/users/show/&quot;</span> <span class="o">+</span> <span class="n">escape</span><span class="o">.</span><span class="n">native_str</span><span class="p">(</span><span class="n">access_token</span><span class="p">[</span><span class="s">&quot;screen_name&quot;</span><span class="p">]),</span>
+            <span class="n">access_token</span><span class="o">=</span><span class="n">access_token</span><span class="p">,</span> <span class="n">callback</span><span class="o">=</span><span class="n">callback</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">_parse_user_response</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">callback</span><span class="p">,</span> <span class="n">user</span><span class="p">):</span>
+        <span class="k">if</span> <span class="n">user</span><span class="p">:</span>
+            <span class="n">user</span><span class="p">[</span><span class="s">&quot;username&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">user</span><span class="p">[</span><span class="s">&quot;screen_name&quot;</span><span class="p">]</span>
+        <span class="n">callback</span><span class="p">(</span><span class="n">user</span><span class="p">)</span>
+
+</div>
+<div class="viewcode-block" id="FriendFeedMixin"><a class="viewcode-back" href="../../auth.html#cyclone.auth.FriendFeedMixin">[docs]</a><span class="k">class</span> <span class="nc">FriendFeedMixin</span><span class="p">(</span><span class="n">OAuthMixin</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;FriendFeed OAuth authentication.</span>
+
+<span class="sd">    To authenticate with FriendFeed, register your application with</span>
+<span class="sd">    FriendFeed at http://friendfeed.com/api/applications. Then</span>
+<span class="sd">    copy your Consumer Key and Consumer Secret to the application settings</span>
+<span class="sd">    &#39;friendfeed_consumer_key&#39; and &#39;friendfeed_consumer_secret&#39;. Use</span>
+<span class="sd">    this Mixin on the handler for the URL you registered as your</span>
+<span class="sd">    application&#39;s Callback URL.</span>
+
+<span class="sd">    When your application is set up, you can use this Mixin like this</span>
+<span class="sd">    to authenticate the user with FriendFeed and get access to their feed::</span>
+
+<span class="sd">        class FriendFeedHandler(cyclone.web.RequestHandler,</span>
+<span class="sd">                                cyclone.auth.FriendFeedMixin):</span>
+<span class="sd">            @cyclone.web.asynchronous</span>
+<span class="sd">            def get(self):</span>
+<span class="sd">                if self.get_argument(&quot;oauth_token&quot;, None):</span>
+<span class="sd">                    self.get_authenticated_user(</span>
+<span class="sd">                                        self.async_callback(self._on_auth))</span>
+<span class="sd">                    return</span>
+<span class="sd">                self.authorize_redirect()</span>
+
+<span class="sd">            def _on_auth(self, user):</span>
+<span class="sd">                if not user:</span>
+<span class="sd">                    raise cyclone.web.HTTPError(500, &quot;FriendFeed auth failed&quot;)</span>
+<span class="sd">                # Save the user using, e.g., set_secure_cookie()</span>
+
+<span class="sd">    The user object returned by get_authenticated_user() includes the</span>
+<span class="sd">    attributes &#39;username&#39;, &#39;name&#39;, and &#39;description&#39; in addition to</span>
+<span class="sd">    &#39;access_token&#39;. You should save the access token with the user;</span>
+<span class="sd">    it is required to make requests on behalf of the user later with</span>
+<span class="sd">    friendfeed_request().</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">_OAUTH_VERSION</span> <span class="o">=</span> <span class="s">&quot;1.0&quot;</span>
+    <span class="n">_OAUTH_REQUEST_TOKEN_URL</span> <span class="o">=</span> \
+        <span class="s">&quot;https://friendfeed.com/account/oauth/request_token&quot;</span>
+    <span class="n">_OAUTH_ACCESS_TOKEN_URL</span> <span class="o">=</span> \
+        <span class="s">&quot;https://friendfeed.com/account/oauth/access_token&quot;</span>
+    <span class="n">_OAUTH_AUTHORIZE_URL</span> <span class="o">=</span> <span class="s">&quot;https://friendfeed.com/account/oauth/authorize&quot;</span>
+    <span class="n">_OAUTH_NO_CALLBACKS</span> <span class="o">=</span> <span class="bp">True</span>
+
+<div class="viewcode-block" id="FriendFeedMixin.friendfeed_request"><a class="viewcode-back" href="../../auth.html#cyclone.auth.FriendFeedMixin.friendfeed_request">[docs]</a>    <span class="k">def</span> <span class="nf">friendfeed_request</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">path</span><span class="p">,</span> <span class="n">callback</span><span class="p">,</span> <span class="n">access_token</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span>
+                           <span class="n">post_args</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="o">**</span><span class="n">args</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Fetches the given relative API path, e.g., &quot;/bret/friends&quot;</span>
+
+<span class="sd">        If the request is a POST, post_args should be provided. Query</span>
+<span class="sd">        string arguments should be given as keyword arguments.</span>
+
+<span class="sd">        All the FriendFeed methods are documented at</span>
+<span class="sd">        http://friendfeed.com/api/documentation.</span>
+
+<span class="sd">        Many methods require an OAuth access token which you can obtain</span>
+<span class="sd">        through authorize_redirect() and get_authenticated_user(). The</span>
+<span class="sd">        user returned through that process includes an &#39;access_token&#39;</span>
+<span class="sd">        attribute that can be used to make authenticated requests via</span>
+<span class="sd">        this method. Example usage::</span>
+
+<span class="sd">            class MainHandler(cyclone.web.RequestHandler,</span>
+<span class="sd">                              cyclone.auth.FriendFeedMixin):</span>
+<span class="sd">                @cyclone.web.authenticated</span>
+<span class="sd">                @cyclone.web.asynchronous</span>
+<span class="sd">                def get(self):</span>
+<span class="sd">                    self.friendfeed_request(</span>
+<span class="sd">                        &quot;/entry&quot;,</span>
+<span class="sd">                        post_args={&quot;body&quot;: &quot;Testing cyclone Web Server&quot;},</span>
+<span class="sd">                        access_token=self.current_user[&quot;access_token&quot;],</span>
+<span class="sd">                        callback=self.async_callback(self._on_post))</span>
+
+<span class="sd">                def _on_post(self, new_entry):</span>
+<span class="sd">                    if not new_entry:</span>
+<span class="sd">                        # Call failed; perhaps missing permission?</span>
+<span class="sd">                        self.authorize_redirect()</span>
+<span class="sd">                        return</span>
+<span class="sd">                    self.finish(&quot;Posted a message!&quot;)</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="c"># Add the OAuth resource request signature if we have credentials</span>
+        <span class="n">url</span> <span class="o">=</span> <span class="s">&quot;http://friendfeed-api.com/v2&quot;</span> <span class="o">+</span> <span class="n">path</span>
+        <span class="k">if</span> <span class="n">access_token</span><span class="p">:</span>
+            <span class="n">all_args</span> <span class="o">=</span> <span class="p">{}</span>
+            <span class="n">all_args</span><span class="o">.</span><span class="n">update</span><span class="p">(</span><span class="n">args</span><span class="p">)</span>
+            <span class="n">all_args</span><span class="o">.</span><span class="n">update</span><span class="p">(</span><span class="n">post_args</span> <span class="ow">or</span> <span class="p">{})</span>
+            <span class="n">method</span> <span class="o">=</span> <span class="s">&quot;POST&quot;</span> <span class="k">if</span> <span class="n">post_args</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span> <span class="k">else</span> <span class="s">&quot;GET&quot;</span>
+            <span class="n">oauth</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_oauth_request_parameters</span><span class="p">(</span>
+                <span class="n">url</span><span class="p">,</span> <span class="n">access_token</span><span class="p">,</span> <span class="n">all_args</span><span class="p">,</span> <span class="n">method</span><span class="o">=</span><span class="n">method</span><span class="p">)</span>
+            <span class="n">args</span><span class="o">.</span><span class="n">update</span><span class="p">(</span><span class="n">oauth</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">args</span><span class="p">:</span>
+            <span class="n">url</span> <span class="o">+=</span> <span class="s">&quot;?&quot;</span> <span class="o">+</span> <span class="n">urllib</span><span class="o">.</span><span class="n">urlencode</span><span class="p">(</span><span class="n">args</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">post_args</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="n">d</span> <span class="o">=</span> <span class="n">httpclient</span><span class="o">.</span><span class="n">fetch</span><span class="p">(</span><span class="n">url</span><span class="p">,</span> <span class="n">method</span><span class="o">=</span><span class="s">&quot;POST&quot;</span><span class="p">,</span>
+                                 <span class="n">postdata</span><span class="o">=</span><span class="n">urllib</span><span class="o">.</span><span class="n">urlencode</span><span class="p">(</span><span class="n">post_args</span><span class="p">))</span>
+            <span class="n">d</span><span class="o">.</span><span class="n">addCallback</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">async_callback</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_on_friendfeed_request</span><span class="p">,</span>
+                          <span class="n">callback</span><span class="p">))</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">httpclient</span><span class="o">.</span><span class="n">fetch</span><span class="p">(</span><span class="n">url</span><span class="p">)</span><span class="o">.</span><span class="n">addCallback</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">async_callback</span><span class="p">(</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">_on_friendfeed_request</span><span class="p">,</span> <span class="n">callback</span><span class="p">))</span>
+</div>
+    <span class="k">def</span> <span class="nf">_on_friendfeed_request</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">callback</span><span class="p">,</span> <span class="n">response</span><span class="p">):</span>
+        <span class="k">if</span> <span class="n">response</span><span class="o">.</span><span class="n">error</span><span class="p">:</span>
+            <span class="n">log</span><span class="o">.</span><span class="n">msg</span><span class="p">(</span><span class="s">&quot;Error response </span><span class="si">%s</span><span class="s"> fetching </span><span class="si">%s</span><span class="s">&quot;</span> <span class="o">%</span> <span class="p">(</span><span class="n">response</span><span class="o">.</span><span class="n">error</span><span class="p">,</span>
+                            <span class="n">response</span><span class="o">.</span><span class="n">request</span><span class="o">.</span><span class="n">url</span><span class="p">))</span>
+            <span class="n">callback</span><span class="p">(</span><span class="bp">None</span><span class="p">)</span>
+            <span class="k">return</span>
+        <span class="n">callback</span><span class="p">(</span><span class="n">escape</span><span class="o">.</span><span class="n">json_decode</span><span class="p">(</span><span class="n">response</span><span class="o">.</span><span class="n">body</span><span class="p">))</span>
+
+    <span class="k">def</span> <span class="nf">_oauth_consumer_token</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">require_setting</span><span class="p">(</span><span class="s">&quot;friendfeed_consumer_key&quot;</span><span class="p">,</span> <span class="s">&quot;FriendFeed OAuth&quot;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">require_setting</span><span class="p">(</span><span class="s">&quot;friendfeed_consumer_secret&quot;</span><span class="p">,</span> <span class="s">&quot;FriendFeed OAuth&quot;</span><span class="p">)</span>
+        <span class="k">return</span> <span class="nb">dict</span><span class="p">(</span>
+            <span class="n">key</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">settings</span><span class="p">[</span><span class="s">&quot;friendfeed_consumer_key&quot;</span><span class="p">],</span>
+            <span class="n">secret</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">settings</span><span class="p">[</span><span class="s">&quot;friendfeed_consumer_secret&quot;</span><span class="p">])</span>
+
+    <span class="k">def</span> <span class="nf">_oauth_get_user</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">access_token</span><span class="p">,</span> <span class="n">callback</span><span class="p">):</span>
+        <span class="n">callback</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">async_callback</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_parse_user_response</span><span class="p">,</span> <span class="n">callback</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">friendfeed_request</span><span class="p">(</span>
+            <span class="s">&quot;/feedinfo/&quot;</span> <span class="o">+</span> <span class="n">access_token</span><span class="p">[</span><span class="s">&quot;username&quot;</span><span class="p">],</span>
+            <span class="n">include</span><span class="o">=</span><span class="s">&quot;id,name,description&quot;</span><span class="p">,</span> <span class="n">access_token</span><span class="o">=</span><span class="n">access_token</span><span class="p">,</span>
+            <span class="n">callback</span><span class="o">=</span><span class="n">callback</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">_parse_user_response</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">callback</span><span class="p">,</span> <span class="n">user</span><span class="p">):</span>
+        <span class="k">if</span> <span class="n">user</span><span class="p">:</span>
+            <span class="n">user</span><span class="p">[</span><span class="s">&quot;username&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">user</span><span class="p">[</span><span class="s">&quot;id&quot;</span><span class="p">]</span>
+        <span class="n">callback</span><span class="p">(</span><span class="n">user</span><span class="p">)</span>
+
+</div>
+<div class="viewcode-block" id="GoogleMixin"><a class="viewcode-back" href="../../auth.html#cyclone.auth.GoogleMixin">[docs]</a><span class="k">class</span> <span class="nc">GoogleMixin</span><span class="p">(</span><span class="n">OpenIdMixin</span><span class="p">,</span> <span class="n">OAuthMixin</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;Google Open ID / OAuth authentication.</span>
+
+<span class="sd">    No application registration is necessary to use Google for authentication</span>
+<span class="sd">    or to access Google resources on behalf of a user. To authenticate with</span>
+<span class="sd">    Google, redirect with authenticate_redirect(). On return, parse the</span>
+<span class="sd">    response with get_authenticated_user(). We send a dict containing the</span>
+<span class="sd">    values for the user, including &#39;email&#39;, &#39;name&#39;, and &#39;locale&#39;.</span>
+<span class="sd">    Example usage::</span>
+
+<span class="sd">        class GoogleHandler(cyclone.web.RequestHandler,</span>
+<span class="sd">                            cyclone.auth.GoogleMixin):</span>
+<span class="sd">           @cyclone.web.asynchronous</span>
+<span class="sd">           def get(self):</span>
+<span class="sd">               if self.get_argument(&quot;openid.mode&quot;, None):</span>
+<span class="sd">                   self.get_authenticated_user(</span>
+<span class="sd">                                        self.async_callback(self._on_auth))</span>
+<span class="sd">                   return</span>
+<span class="sd">            self.authenticate_redirect()</span>
+
+<span class="sd">            def _on_auth(self, user):</span>
+<span class="sd">                if not user:</span>
+<span class="sd">                    raise cyclone.web.HTTPError(500, &quot;Google auth failed&quot;)</span>
+<span class="sd">                # Save the user with, e.g., set_secure_cookie()</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">_OPENID_ENDPOINT</span> <span class="o">=</span> <span class="s">&quot;https://www.google.com/accounts/o8/ud&quot;</span>
+    <span class="n">_OAUTH_ACCESS_TOKEN_URL</span> <span class="o">=</span> \
+        <span class="s">&quot;https://www.google.com/accounts/OAuthGetAccessToken&quot;</span>
+
+<div class="viewcode-block" id="GoogleMixin.authorize_redirect"><a class="viewcode-back" href="../../auth.html#cyclone.auth.GoogleMixin.authorize_redirect">[docs]</a>    <span class="k">def</span> <span class="nf">authorize_redirect</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">oauth_scope</span><span class="p">,</span> <span class="n">callback_uri</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span>
+                           <span class="n">ax_attrs</span><span class="o">=</span><span class="p">[</span><span class="s">&quot;name&quot;</span><span class="p">,</span> <span class="s">&quot;email&quot;</span><span class="p">,</span> <span class="s">&quot;language&quot;</span><span class="p">,</span> <span class="s">&quot;username&quot;</span><span class="p">]):</span>
+        <span class="sd">&quot;&quot;&quot;Authenticates and authorizes for the given Google resource.</span>
+
+<span class="sd">        Some of the available resources are:</span>
+
+<span class="sd">           Gmail Contacts - http://www.google.com/m8/feeds/</span>
+<span class="sd">           Calendar - http://www.google.com/calendar/feeds/</span>
+<span class="sd">           Finance - http://finance.google.com/finance/feeds/</span>
+
+<span class="sd">        You can authorize multiple resources by separating the resource</span>
+<span class="sd">        URLs with a space.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">callback_uri</span> <span class="o">=</span> <span class="n">callback_uri</span> <span class="ow">or</span> <span class="bp">self</span><span class="o">.</span><span class="n">request</span><span class="o">.</span><span class="n">uri</span>
+        <span class="n">args</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_openid_args</span><span class="p">(</span><span class="n">callback_uri</span><span class="p">,</span> <span class="n">ax_attrs</span><span class="o">=</span><span class="n">ax_attrs</span><span class="p">,</span>
+                                 <span class="n">oauth_scope</span><span class="o">=</span><span class="n">oauth_scope</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">redirect</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_OPENID_ENDPOINT</span> <span class="o">+</span> <span class="s">&quot;?&quot;</span> <span class="o">+</span> <span class="n">urllib</span><span class="o">.</span><span class="n">urlencode</span><span class="p">(</span><span class="n">args</span><span class="p">))</span>
+</div>
+<div class="viewcode-block" id="GoogleMixin.get_authenticated_user"><a class="viewcode-back" href="../../auth.html#cyclone.auth.GoogleMixin.get_authenticated_user">[docs]</a>    <span class="k">def</span> <span class="nf">get_authenticated_user</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">callback</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Fetches the authenticated user data upon redirect.&quot;&quot;&quot;</span>
+        <span class="c"># Look to see if we are doing combined OpenID/OAuth</span>
+        <span class="n">oauth_ns</span> <span class="o">=</span> <span class="s">&quot;&quot;</span>
+        <span class="k">for</span> <span class="n">name</span><span class="p">,</span> <span class="n">values</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">request</span><span class="o">.</span><span class="n">arguments</span><span class="o">.</span><span class="n">iteritems</span><span class="p">():</span>
+            <span class="k">if</span> <span class="n">name</span><span class="o">.</span><span class="n">startswith</span><span class="p">(</span><span class="s">&quot;openid.ns.&quot;</span><span class="p">)</span> <span class="ow">and</span> \
+               <span class="n">values</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span> <span class="o">==</span> <span class="s">u&quot;http://specs.openid.net/extensions/oauth/1.0&quot;</span><span class="p">:</span>
+                <span class="n">oauth_ns</span> <span class="o">=</span> <span class="n">name</span><span class="p">[</span><span class="mi">10</span><span class="p">:]</span>
+                <span class="k">break</span>
+        <span class="n">token</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_argument</span><span class="p">(</span><span class="s">&quot;openid.&quot;</span> <span class="o">+</span> <span class="n">oauth_ns</span> <span class="o">+</span> <span class="s">&quot;.request_token&quot;</span><span class="p">,</span> <span class="s">&quot;&quot;</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">token</span><span class="p">:</span>
+            <span class="n">token</span> <span class="o">=</span> <span class="nb">dict</span><span class="p">(</span><span class="n">key</span><span class="o">=</span><span class="n">token</span><span class="p">,</span> <span class="n">secret</span><span class="o">=</span><span class="s">&quot;&quot;</span><span class="p">)</span>
+            <span class="n">d</span> <span class="o">=</span> <span class="n">httpclient</span><span class="o">.</span><span class="n">fetch</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_oauth_access_token_url</span><span class="p">(</span><span class="n">token</span><span class="p">))</span>
+            <span class="n">d</span><span class="o">.</span><span class="n">addCallback</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">async_callback</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_on_access_token</span><span class="p">,</span> <span class="n">callback</span><span class="p">))</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">OpenIdMixin</span><span class="o">.</span><span class="n">get_authenticated_user</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">callback</span><span class="p">)</span>
+</div>
+    <span class="k">def</span> <span class="nf">_oauth_consumer_token</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">require_setting</span><span class="p">(</span><span class="s">&quot;google_consumer_key&quot;</span><span class="p">,</span> <span class="s">&quot;Google OAuth&quot;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">require_setting</span><span class="p">(</span><span class="s">&quot;google_consumer_secret&quot;</span><span class="p">,</span> <span class="s">&quot;Google OAuth&quot;</span><span class="p">)</span>
+        <span class="k">return</span> <span class="nb">dict</span><span class="p">(</span>
+            <span class="n">key</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">settings</span><span class="p">[</span><span class="s">&quot;google_consumer_key&quot;</span><span class="p">],</span>
+            <span class="n">secret</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">settings</span><span class="p">[</span><span class="s">&quot;google_consumer_secret&quot;</span><span class="p">])</span>
+
+    <span class="k">def</span> <span class="nf">_oauth_get_user</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">access_token</span><span class="p">,</span> <span class="n">callback</span><span class="p">):</span>
+        <span class="n">OpenIdMixin</span><span class="o">.</span><span class="n">get_authenticated_user</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">callback</span><span class="p">)</span>
+
+</div>
+<div class="viewcode-block" id="FacebookMixin"><a class="viewcode-back" href="../../auth.html#cyclone.auth.FacebookMixin">[docs]</a><span class="k">class</span> <span class="nc">FacebookMixin</span><span class="p">(</span><span class="nb">object</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;Facebook Connect authentication.</span>
+
+<span class="sd">    New applications should consider using `FacebookGraphMixin` below instead</span>
+<span class="sd">    of this class.</span>
+
+<span class="sd">    To authenticate with Facebook, register your application with</span>
+<span class="sd">    Facebook at http://www.facebook.com/developers/apps.php. Then</span>
+<span class="sd">    copy your API Key and Application Secret to the application settings</span>
+<span class="sd">    &#39;facebook_api_key&#39; and &#39;facebook_secret&#39;.</span>
+
+<span class="sd">    When your application is set up, you can use this Mixin like this</span>
+<span class="sd">    to authenticate the user with Facebook::</span>
+
+<span class="sd">        class FacebookHandler(cyclone.web.RequestHandler,</span>
+<span class="sd">                              cyclone.auth.FacebookMixin):</span>
+<span class="sd">            @cyclone.web.asynchronous</span>
+<span class="sd">            def get(self):</span>
+<span class="sd">                if self.get_argument(&quot;session&quot;, None):</span>
+<span class="sd">                    self.get_authenticated_user(</span>
+<span class="sd">                                        self.async_callback(self._on_auth))</span>
+<span class="sd">                    return</span>
+<span class="sd">                self.authenticate_redirect()</span>
+
+<span class="sd">            def _on_auth(self, user):</span>
+<span class="sd">                if not user:</span>
+<span class="sd">                    raise cyclone.web.HTTPError(500, &quot;Facebook auth failed&quot;)</span>
+<span class="sd">                # Save the user using, e.g., set_secure_cookie()</span>
+
+<span class="sd">    The user object returned by get_authenticated_user() includes the</span>
+<span class="sd">    attributes &#39;facebook_uid&#39; and &#39;name&#39; in addition to session attributes</span>
+<span class="sd">    like &#39;session_key&#39;. You should save the session key with the user; it is</span>
+<span class="sd">    required to make requests on behalf of the user later with</span>
+<span class="sd">    facebook_request().</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+<div class="viewcode-block" id="FacebookMixin.authenticate_redirect"><a class="viewcode-back" href="../../auth.html#cyclone.auth.FacebookMixin.authenticate_redirect">[docs]</a>    <span class="k">def</span> <span class="nf">authenticate_redirect</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">callback_uri</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="n">cancel_uri</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span>
+                              <span class="n">extended_permissions</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Authenticates/installs this app for the current user.&quot;&quot;&quot;</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">require_setting</span><span class="p">(</span><span class="s">&quot;facebook_api_key&quot;</span><span class="p">,</span> <span class="s">&quot;Facebook Connect&quot;</span><span class="p">)</span>
+        <span class="n">callback_uri</span> <span class="o">=</span> <span class="n">callback_uri</span> <span class="ow">or</span> <span class="bp">self</span><span class="o">.</span><span class="n">request</span><span class="o">.</span><span class="n">uri</span>
+        <span class="n">args</span> <span class="o">=</span> <span class="p">{</span>
+            <span class="s">&quot;api_key&quot;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">settings</span><span class="p">[</span><span class="s">&quot;facebook_api_key&quot;</span><span class="p">],</span>
+            <span class="s">&quot;v&quot;</span><span class="p">:</span> <span class="s">&quot;1.0&quot;</span><span class="p">,</span>
+            <span class="s">&quot;fbconnect&quot;</span><span class="p">:</span> <span class="s">&quot;true&quot;</span><span class="p">,</span>
+            <span class="s">&quot;display&quot;</span><span class="p">:</span> <span class="s">&quot;page&quot;</span><span class="p">,</span>
+            <span class="s">&quot;next&quot;</span><span class="p">:</span> <span class="n">urlparse</span><span class="o">.</span><span class="n">urljoin</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">request</span><span class="o">.</span><span class="n">full_url</span><span class="p">(),</span> <span class="n">callback_uri</span><span class="p">),</span>
+            <span class="s">&quot;return_session&quot;</span><span class="p">:</span> <span class="s">&quot;true&quot;</span><span class="p">,</span>
+        <span class="p">}</span>
+        <span class="k">if</span> <span class="n">cancel_uri</span><span class="p">:</span>
+            <span class="n">args</span><span class="p">[</span><span class="s">&quot;cancel_url&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">urlparse</span><span class="o">.</span><span class="n">urljoin</span><span class="p">(</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">request</span><span class="o">.</span><span class="n">full_url</span><span class="p">(),</span> <span class="n">cancel_uri</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">extended_permissions</span><span class="p">:</span>
+            <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">extended_permissions</span><span class="p">,</span> <span class="p">(</span><span class="n">unicode_type</span><span class="p">,</span> <span class="n">bytes_type</span><span class="p">)):</span>
+                <span class="n">extended_permissions</span> <span class="o">=</span> <span class="p">[</span><span class="n">extended_permissions</span><span class="p">]</span>
+            <span class="n">args</span><span class="p">[</span><span class="s">&quot;req_perms&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="s">&quot;,&quot;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">extended_permissions</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">redirect</span><span class="p">(</span><span class="s">&quot;http://www.facebook.com/login.php?&quot;</span> <span class="o">+</span>
+                      <span class="n">urllib</span><span class="o">.</span><span class="n">urlencode</span><span class="p">(</span><span class="n">args</span><span class="p">))</span>
+</div>
+<div class="viewcode-block" id="FacebookMixin.authorize_redirect"><a class="viewcode-back" href="../../auth.html#cyclone.auth.FacebookMixin.authorize_redirect">[docs]</a>    <span class="k">def</span> <span class="nf">authorize_redirect</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">extended_permissions</span><span class="p">,</span> <span class="n">callback_uri</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span>
+                           <span class="n">cancel_uri</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Redirects to an authorization request for the given FB resource.</span>
+
+<span class="sd">        The available resource names are listed at</span>
+<span class="sd">        http://wiki.developers.facebook.com/index.php/Extended_permission.</span>
+<span class="sd">        The most common resource types include:</span>
+
+<span class="sd">        * publish_stream</span>
+<span class="sd">        * read_stream</span>
+<span class="sd">        * email</span>
+<span class="sd">        * sms</span>
+
+<span class="sd">        extended_permissions can be a single permission name or a list of</span>
+<span class="sd">        names. To get the session secret and session key, call</span>
+<span class="sd">        get_authenticated_user() just as you would with</span>
+<span class="sd">        authenticate_redirect().</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">authenticate_redirect</span><span class="p">(</span><span class="n">callback_uri</span><span class="p">,</span> <span class="n">cancel_uri</span><span class="p">,</span>
+                                   <span class="n">extended_permissions</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="FacebookMixin.get_authenticated_user"><a class="viewcode-back" href="../../auth.html#cyclone.auth.FacebookMixin.get_authenticated_user">[docs]</a>    <span class="k">def</span> <span class="nf">get_authenticated_user</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">callback</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Fetches the authenticated Facebook user.</span>
+
+<span class="sd">        The authenticated user includes the special Facebook attributes</span>
+<span class="sd">        &#39;session_key&#39; and &#39;facebook_uid&#39; in addition to the standard</span>
+<span class="sd">        user attributes like &#39;name&#39;.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">require_setting</span><span class="p">(</span><span class="s">&quot;facebook_api_key&quot;</span><span class="p">,</span> <span class="s">&quot;Facebook Connect&quot;</span><span class="p">)</span>
+        <span class="n">session</span> <span class="o">=</span> <span class="n">escape</span><span class="o">.</span><span class="n">json_decode</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">get_argument</span><span class="p">(</span><span class="s">&quot;session&quot;</span><span class="p">))</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">facebook_request</span><span class="p">(</span>
+            <span class="n">method</span><span class="o">=</span><span class="s">&quot;facebook.users.getInfo&quot;</span><span class="p">,</span>
+            <span class="n">callback</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">async_callback</span><span class="p">(</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">_on_get_user_info</span><span class="p">,</span> <span class="n">callback</span><span class="p">,</span> <span class="n">session</span><span class="p">),</span>
+            <span class="n">session_key</span><span class="o">=</span><span class="n">session</span><span class="p">[</span><span class="s">&quot;session_key&quot;</span><span class="p">],</span>
+            <span class="n">uids</span><span class="o">=</span><span class="n">session</span><span class="p">[</span><span class="s">&quot;uid&quot;</span><span class="p">],</span>
+            <span class="n">fields</span><span class="o">=</span><span class="s">&quot;uid,first_name,last_name,name,locale,pic_square,&quot;</span>
+                   <span class="s">&quot;profile_url,username&quot;</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="FacebookMixin.facebook_request"><a class="viewcode-back" href="../../auth.html#cyclone.auth.FacebookMixin.facebook_request">[docs]</a>    <span class="k">def</span> <span class="nf">facebook_request</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">method</span><span class="p">,</span> <span class="n">callback</span><span class="p">,</span> <span class="o">**</span><span class="n">args</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Makes a Facebook API REST request.</span>
+
+<span class="sd">        We automatically include the Facebook API key and signature, but</span>
+<span class="sd">        it is the callers responsibility to include &#39;session_key&#39; and any</span>
+<span class="sd">        other required arguments to the method.</span>
+
+<span class="sd">        The available Facebook methods are documented here:</span>
+<span class="sd">        http://wiki.developers.facebook.com/index.php/API</span>
+
+<span class="sd">        Here is an example for the stream.get() method::</span>
+
+<span class="sd">            class MainHandler(cyclone.web.RequestHandler,</span>
+<span class="sd">                              cyclone.auth.FacebookMixin):</span>
+<span class="sd">                @cyclone.web.authenticated</span>
+<span class="sd">                @cyclone.web.asynchronous</span>
+<span class="sd">                def get(self):</span>
+<span class="sd">                    self.facebook_request(</span>
+<span class="sd">                        method=&quot;stream.get&quot;,</span>
+<span class="sd">                        callback=self.async_callback(self._on_stream),</span>
+<span class="sd">                        session_key=self.current_user[&quot;session_key&quot;])</span>
+
+<span class="sd">                def _on_stream(self, stream):</span>
+<span class="sd">                    if stream is None:</span>
+<span class="sd">                       # Not authorized to read the stream yet?</span>
+<span class="sd">                       self.redirect(self.authorize_redirect(&quot;read_stream&quot;))</span>
+<span class="sd">                       return</span>
+<span class="sd">                    self.render(&quot;stream.html&quot;, stream=stream)</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">require_setting</span><span class="p">(</span><span class="s">&quot;facebook_api_key&quot;</span><span class="p">,</span> <span class="s">&quot;Facebook Connect&quot;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">require_setting</span><span class="p">(</span><span class="s">&quot;facebook_secret&quot;</span><span class="p">,</span> <span class="s">&quot;Facebook Connect&quot;</span><span class="p">)</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">method</span><span class="o">.</span><span class="n">startswith</span><span class="p">(</span><span class="s">&quot;facebook.&quot;</span><span class="p">):</span>
+            <span class="n">method</span> <span class="o">=</span> <span class="s">&quot;facebook.&quot;</span> <span class="o">+</span> <span class="n">method</span>
+        <span class="n">args</span><span class="p">[</span><span class="s">&quot;api_key&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">settings</span><span class="p">[</span><span class="s">&quot;facebook_api_key&quot;</span><span class="p">]</span>
+        <span class="n">args</span><span class="p">[</span><span class="s">&quot;v&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="s">&quot;1.0&quot;</span>
+        <span class="n">args</span><span class="p">[</span><span class="s">&quot;method&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">method</span>
+        <span class="n">args</span><span class="p">[</span><span class="s">&quot;call_id&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="nb">str</span><span class="p">(</span><span class="nb">long</span><span class="p">(</span><span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span> <span class="o">*</span> <span class="mf">1e6</span><span class="p">))</span>
+        <span class="n">args</span><span class="p">[</span><span class="s">&quot;format&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="s">&quot;json&quot;</span>
+        <span class="n">args</span><span class="p">[</span><span class="s">&quot;sig&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_signature</span><span class="p">(</span><span class="n">args</span><span class="p">)</span>
+        <span class="n">url</span> <span class="o">=</span> <span class="s">&quot;http://api.facebook.com/restserver.php?&quot;</span> <span class="o">+</span> \
+            <span class="n">urllib</span><span class="o">.</span><span class="n">urlencode</span><span class="p">(</span><span class="n">args</span><span class="p">)</span>
+        <span class="n">d</span> <span class="o">=</span> <span class="n">httpclient</span><span class="o">.</span><span class="n">fetch</span><span class="p">(</span><span class="n">url</span><span class="p">)</span>
+        <span class="n">d</span><span class="o">.</span><span class="n">addCallback</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">async_callback</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_parse_response</span><span class="p">,</span> <span class="n">callback</span><span class="p">))</span>
+</div>
+    <span class="k">def</span> <span class="nf">_on_get_user_info</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">callback</span><span class="p">,</span> <span class="n">session</span><span class="p">,</span> <span class="n">users</span><span class="p">):</span>
+        <span class="k">if</span> <span class="n">users</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="n">callback</span><span class="p">(</span><span class="bp">None</span><span class="p">)</span>
+            <span class="k">return</span>
+        <span class="n">callback</span><span class="p">({</span>
+            <span class="s">&quot;name&quot;</span><span class="p">:</span> <span class="n">users</span><span class="p">[</span><span class="mi">0</span><span class="p">][</span><span class="s">&quot;name&quot;</span><span class="p">],</span>
+            <span class="s">&quot;first_name&quot;</span><span class="p">:</span> <span class="n">users</span><span class="p">[</span><span class="mi">0</span><span class="p">][</span><span class="s">&quot;first_name&quot;</span><span class="p">],</span>
+            <span class="s">&quot;last_name&quot;</span><span class="p">:</span> <span class="n">users</span><span class="p">[</span><span class="mi">0</span><span class="p">][</span><span class="s">&quot;last_name&quot;</span><span class="p">],</span>
+            <span class="s">&quot;uid&quot;</span><span class="p">:</span> <span class="n">users</span><span class="p">[</span><span class="mi">0</span><span class="p">][</span><span class="s">&quot;uid&quot;</span><span class="p">],</span>
+            <span class="s">&quot;locale&quot;</span><span class="p">:</span> <span class="n">users</span><span class="p">[</span><span class="mi">0</span><span class="p">][</span><span class="s">&quot;locale&quot;</span><span class="p">],</span>
+            <span class="s">&quot;pic_square&quot;</span><span class="p">:</span> <span class="n">users</span><span class="p">[</span><span class="mi">0</span><span class="p">][</span><span class="s">&quot;pic_square&quot;</span><span class="p">],</span>
+            <span class="s">&quot;profile_url&quot;</span><span class="p">:</span> <span class="n">users</span><span class="p">[</span><span class="mi">0</span><span class="p">][</span><span class="s">&quot;profile_url&quot;</span><span class="p">],</span>
+            <span class="s">&quot;username&quot;</span><span class="p">:</span> <span class="n">users</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s">&quot;username&quot;</span><span class="p">),</span>
+            <span class="s">&quot;session_key&quot;</span><span class="p">:</span> <span class="n">session</span><span class="p">[</span><span class="s">&quot;session_key&quot;</span><span class="p">],</span>
+            <span class="s">&quot;session_expires&quot;</span><span class="p">:</span> <span class="n">session</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s">&quot;expires&quot;</span><span class="p">),</span>
+        <span class="p">})</span>
+
+    <span class="k">def</span> <span class="nf">_parse_response</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">callback</span><span class="p">,</span> <span class="n">response</span><span class="p">):</span>
+        <span class="k">if</span> <span class="n">response</span><span class="o">.</span><span class="n">error</span><span class="p">:</span>
+            <span class="n">log</span><span class="o">.</span><span class="n">msg</span><span class="p">(</span><span class="s">&quot;HTTP error from Facebook: </span><span class="si">%s</span><span class="s">&quot;</span> <span class="o">%</span> <span class="n">response</span><span class="o">.</span><span class="n">error</span><span class="p">)</span>
+            <span class="n">callback</span><span class="p">(</span><span class="bp">None</span><span class="p">)</span>
+            <span class="k">return</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">json</span> <span class="o">=</span> <span class="n">escape</span><span class="o">.</span><span class="n">json_decode</span><span class="p">(</span><span class="n">response</span><span class="o">.</span><span class="n">body</span><span class="p">)</span>
+        <span class="k">except</span><span class="p">:</span>
+            <span class="n">log</span><span class="o">.</span><span class="n">msg</span><span class="p">(</span><span class="s">&quot;Invalid JSON from Facebook: </span><span class="si">%r</span><span class="s">&quot;</span> <span class="o">%</span> <span class="n">response</span><span class="o">.</span><span class="n">body</span><span class="p">)</span>
+            <span class="n">callback</span><span class="p">(</span><span class="bp">None</span><span class="p">)</span>
+            <span class="k">return</span>
+        <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">json</span><span class="p">,</span> <span class="nb">dict</span><span class="p">)</span> <span class="ow">and</span> <span class="n">json</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s">&quot;error_code&quot;</span><span class="p">):</span>
+            <span class="n">log</span><span class="o">.</span><span class="n">msg</span><span class="p">(</span><span class="s">&quot;Facebook error: </span><span class="si">%d</span><span class="s">: </span><span class="si">%r</span><span class="s">&quot;</span> <span class="o">%</span>
+                    <span class="p">(</span><span class="n">json</span><span class="p">[</span><span class="s">&quot;error_code&quot;</span><span class="p">],</span> <span class="n">json</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s">&quot;error_msg&quot;</span><span class="p">)))</span>
+            <span class="n">callback</span><span class="p">(</span><span class="bp">None</span><span class="p">)</span>
+            <span class="k">return</span>
+        <span class="n">callback</span><span class="p">(</span><span class="n">json</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">_signature</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">args</span><span class="p">):</span>
+        <span class="n">parts</span> <span class="o">=</span> <span class="p">[</span><span class="s">&quot;</span><span class="si">%s</span><span class="s">=</span><span class="si">%s</span><span class="s">&quot;</span> <span class="o">%</span> <span class="p">(</span><span class="n">n</span><span class="p">,</span> <span class="n">args</span><span class="p">[</span><span class="n">n</span><span class="p">])</span> <span class="k">for</span> <span class="n">n</span> <span class="ow">in</span> <span class="nb">sorted</span><span class="p">(</span><span class="n">args</span><span class="o">.</span><span class="n">keys</span><span class="p">())]</span>
+        <span class="n">body</span> <span class="o">=</span> <span class="s">&quot;&quot;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">parts</span><span class="p">)</span> <span class="o">+</span> <span class="bp">self</span><span class="o">.</span><span class="n">settings</span><span class="p">[</span><span class="s">&quot;facebook_secret&quot;</span><span class="p">]</span>
+        <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">body</span><span class="p">,</span> <span class="nb">unicode</span><span class="p">):</span>
+            <span class="n">body</span> <span class="o">=</span> <span class="n">body</span><span class="o">.</span><span class="n">encode</span><span class="p">(</span><span class="s">&quot;utf-8&quot;</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">hashlib</span><span class="o">.</span><span class="n">md5</span><span class="p">(</span><span class="n">body</span><span class="p">)</span><span class="o">.</span><span class="n">hexdigest</span><span class="p">()</span>
+
+</div>
+<div class="viewcode-block" id="FacebookGraphMixin"><a class="viewcode-back" href="../../auth.html#cyclone.auth.FacebookGraphMixin">[docs]</a><span class="k">class</span> <span class="nc">FacebookGraphMixin</span><span class="p">(</span><span class="n">OAuth2Mixin</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;Facebook authentication using the new Graph API and OAuth2.&quot;&quot;&quot;</span>
+    <span class="n">_OAUTH_ACCESS_TOKEN_URL</span> <span class="o">=</span> <span class="s">&quot;https://graph.facebook.com/oauth/access_token?&quot;</span>
+    <span class="n">_OAUTH_AUTHORIZE_URL</span> <span class="o">=</span> <span class="s">&quot;https://graph.facebook.com/oauth/authorize?&quot;</span>
+    <span class="n">_OAUTH_NO_CALLBACKS</span> <span class="o">=</span> <span class="bp">False</span>
+
+<div class="viewcode-block" id="FacebookGraphMixin.get_authenticated_user"><a class="viewcode-back" href="../../auth.html#cyclone.auth.FacebookGraphMixin.get_authenticated_user">[docs]</a>    <span class="k">def</span> <span class="nf">get_authenticated_user</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">redirect_uri</span><span class="p">,</span> <span class="n">client_id</span><span class="p">,</span> <span class="n">client_secret</span><span class="p">,</span>
+                              <span class="n">code</span><span class="p">,</span> <span class="n">callback</span><span class="p">,</span> <span class="n">extra_fields</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Handles the login for the Facebook user, returning a user object.</span>
+
+<span class="sd">        Example usage::</span>
+
+<span class="sd">            class FacebookGraphLoginHandler(LoginHandler,</span>
+<span class="sd">                                            cyclone.auth.FacebookGraphMixin):</span>
+<span class="sd">              @cyclone.web.asynchronous</span>
+<span class="sd">              def get(self):</span>
+<span class="sd">                  if self.get_argument(&quot;code&quot;, False):</span>
+<span class="sd">                      self.get_authenticated_user(</span>
+<span class="sd">                        redirect_uri=&#39;/auth/facebookgraph/&#39;,</span>
+<span class="sd">                        client_id=self.settings[&quot;facebook_api_key&quot;],</span>
+<span class="sd">                        client_secret=self.settings[&quot;facebook_secret&quot;],</span>
+<span class="sd">                        code=self.get_argument(&quot;code&quot;),</span>
+<span class="sd">                        callback=self.async_callback(</span>
+<span class="sd">                          self._on_login))</span>
+<span class="sd">                      return</span>
+<span class="sd">                  self.authorize_redirect(</span>
+<span class="sd">                        redirect_uri=&#39;/auth/facebookgraph/&#39;,</span>
+<span class="sd">                        client_id=self.settings[&quot;facebook_api_key&quot;],</span>
+<span class="sd">                        extra_params={&quot;scope&quot;: &quot;read_stream,offline_access&quot;})</span>
+
+<span class="sd">              def _on_login(self, user):</span>
+<span class="sd">                logging.error(user)</span>
+<span class="sd">                self.finish()</span>
+
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">args</span> <span class="o">=</span> <span class="p">{</span>
+          <span class="s">&quot;redirect_uri&quot;</span><span class="p">:</span> <span class="n">redirect_uri</span><span class="p">,</span>
+          <span class="s">&quot;code&quot;</span><span class="p">:</span> <span class="n">code</span><span class="p">,</span>
+          <span class="s">&quot;client_id&quot;</span><span class="p">:</span> <span class="n">client_id</span><span class="p">,</span>
+          <span class="s">&quot;client_secret&quot;</span><span class="p">:</span> <span class="n">client_secret</span><span class="p">,</span>
+        <span class="p">}</span>
+
+        <span class="n">fields</span> <span class="o">=</span> <span class="nb">set</span><span class="p">([</span><span class="s">&#39;id&#39;</span><span class="p">,</span> <span class="s">&#39;name&#39;</span><span class="p">,</span> <span class="s">&#39;first_name&#39;</span><span class="p">,</span> <span class="s">&#39;last_name&#39;</span><span class="p">,</span>
+                      <span class="s">&#39;locale&#39;</span><span class="p">,</span> <span class="s">&#39;picture&#39;</span><span class="p">,</span> <span class="s">&#39;link&#39;</span><span class="p">])</span>
+        <span class="k">if</span> <span class="n">extra_fields</span><span class="p">:</span>
+            <span class="n">fields</span><span class="o">.</span><span class="n">update</span><span class="p">(</span><span class="n">extra_fields</span><span class="p">)</span>
+
+        <span class="n">httpclient</span><span class="o">.</span><span class="n">fetch</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_oauth_request_token_url</span><span class="p">(</span><span class="o">**</span><span class="n">args</span><span class="p">))</span>\
+        <span class="o">.</span><span class="n">addCallback</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">async_callback</span><span class="p">(</span>
+                            <span class="bp">self</span><span class="o">.</span><span class="n">_on_access_token</span><span class="p">,</span> <span class="n">redirect_uri</span><span class="p">,</span> <span class="n">client_id</span><span class="p">,</span>
+                            <span class="n">client_secret</span><span class="p">,</span> <span class="n">callback</span><span class="p">,</span> <span class="n">fields</span><span class="p">))</span>
+</div>
+    <span class="k">def</span> <span class="nf">_on_access_token</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">redirect_uri</span><span class="p">,</span> <span class="n">client_id</span><span class="p">,</span> <span class="n">client_secret</span><span class="p">,</span>
+                        <span class="n">callback</span><span class="p">,</span> <span class="n">fields</span><span class="p">,</span> <span class="n">response</span><span class="p">):</span>
+        <span class="k">if</span> <span class="n">response</span><span class="o">.</span><span class="n">error</span><span class="p">:</span>
+            <span class="n">log</span><span class="o">.</span><span class="n">warning</span><span class="p">(</span><span class="s">&#39;Facebook auth error: </span><span class="si">%s</span><span class="s">&#39;</span> <span class="o">%</span> <span class="nb">str</span><span class="p">(</span><span class="n">response</span><span class="p">))</span>
+            <span class="n">callback</span><span class="p">(</span><span class="bp">None</span><span class="p">)</span>
+            <span class="k">return</span>
+
+        <span class="n">args</span> <span class="o">=</span> <span class="n">escape</span><span class="o">.</span><span class="n">parse_qs_bytes</span><span class="p">(</span><span class="n">escape</span><span class="o">.</span><span class="n">native_str</span><span class="p">(</span><span class="n">response</span><span class="o">.</span><span class="n">body</span><span class="p">))</span>
+        <span class="n">session</span> <span class="o">=</span> <span class="p">{</span>
+            <span class="s">&quot;access_token&quot;</span><span class="p">:</span> <span class="n">args</span><span class="p">[</span><span class="s">&quot;access_token&quot;</span><span class="p">][</span><span class="o">-</span><span class="mi">1</span><span class="p">],</span>
+            <span class="s">&quot;expires&quot;</span><span class="p">:</span> <span class="n">args</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s">&quot;expires&quot;</span><span class="p">)</span>
+        <span class="p">}</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">facebook_request</span><span class="p">(</span>
+            <span class="n">path</span><span class="o">=</span><span class="s">&quot;/me&quot;</span><span class="p">,</span>
+            <span class="n">callback</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">async_callback</span><span class="p">(</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">_on_get_user_info</span><span class="p">,</span> <span class="n">callback</span><span class="p">,</span> <span class="n">session</span><span class="p">,</span> <span class="n">fields</span><span class="p">),</span>
+            <span class="n">access_token</span><span class="o">=</span><span class="n">session</span><span class="p">[</span><span class="s">&quot;access_token&quot;</span><span class="p">],</span>
+            <span class="n">fields</span><span class="o">=</span><span class="s">&quot;,&quot;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">fields</span><span class="p">)</span>
+            <span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">_on_get_user_info</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">callback</span><span class="p">,</span> <span class="n">session</span><span class="p">,</span> <span class="n">fields</span><span class="p">,</span> <span class="n">user</span><span class="p">):</span>
+        <span class="k">if</span> <span class="n">user</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="n">callback</span><span class="p">(</span><span class="bp">None</span><span class="p">)</span>
+            <span class="k">return</span>
+        
+        <span class="n">fieldmap</span> <span class="o">=</span> <span class="p">{}</span>
+        <span class="k">for</span> <span class="n">field</span> <span class="ow">in</span> <span class="n">fields</span><span class="p">:</span>
+            <span class="n">fieldmap</span><span class="p">[</span><span class="n">field</span><span class="p">]</span> <span class="o">=</span> <span class="n">user</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">field</span><span class="p">)</span>
+
+        <span class="n">fieldmap</span><span class="o">.</span><span class="n">update</span><span class="p">({</span><span class="s">&quot;access_token&quot;</span><span class="p">:</span> <span class="n">session</span><span class="p">[</span><span class="s">&quot;access_token&quot;</span><span class="p">],</span>
+                         <span class="s">&quot;session_expires&quot;</span><span class="p">:</span> <span class="n">session</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s">&quot;expires&quot;</span><span class="p">)})</span>
+        <span class="n">callback</span><span class="p">(</span><span class="n">fieldmap</span><span class="p">)</span>
+
+<div class="viewcode-block" id="FacebookGraphMixin.facebook_request"><a class="viewcode-back" href="../../auth.html#cyclone.auth.FacebookGraphMixin.facebook_request">[docs]</a>    <span class="k">def</span> <span class="nf">facebook_request</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">path</span><span class="p">,</span> <span class="n">callback</span><span class="p">,</span> <span class="n">access_token</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span>
+                           <span class="n">post_args</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="o">**</span><span class="n">args</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Fetches the given relative API path, e.g., &quot;/btaylor/picture&quot;</span>
+
+<span class="sd">        If the request is a POST, post_args should be provided. Query</span>
+<span class="sd">        string arguments should be given as keyword arguments.</span>
+
+<span class="sd">        An introduction to the Facebook Graph API can be found at</span>
+<span class="sd">        http://developers.facebook.com/docs/api</span>
+
+<span class="sd">        Many methods require an OAuth access token which you can obtain</span>
+<span class="sd">        through authorize_redirect() and get_authenticated_user(). The</span>
+<span class="sd">        user returned through that process includes an &#39;access_token&#39;</span>
+<span class="sd">        attribute that can be used to make authenticated requests via</span>
+<span class="sd">        this method. Example usage::</span>
+
+<span class="sd">            class MainHandler(cyclone.web.RequestHandler,</span>
+<span class="sd">                              cyclone.auth.FacebookGraphMixin):</span>
+<span class="sd">                @cyclone.web.authenticated</span>
+<span class="sd">                @cyclone.web.asynchronous</span>
+<span class="sd">                def get(self):</span>
+<span class="sd">                    self.facebook_request(</span>
+<span class="sd">                        &quot;/me/feed&quot;,</span>
+<span class="sd">                        post_args={&quot;message&quot;: &quot;Posting from my cyclone app!&quot;},</span>
+<span class="sd">                        access_token=self.current_user[&quot;access_token&quot;],</span>
+<span class="sd">                        callback=self.async_callback(self._on_post))</span>
+
+<span class="sd">                def _on_post(self, new_entry):</span>
+<span class="sd">                    if not new_entry:</span>
+<span class="sd">                        # Call failed; perhaps missing permission?</span>
+<span class="sd">                        self.authorize_redirect()</span>
+<span class="sd">                        return</span>
+<span class="sd">                    self.finish(&quot;Posted a message!&quot;)</span>
+
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">url</span> <span class="o">=</span> <span class="s">&quot;https://graph.facebook.com&quot;</span> <span class="o">+</span> <span class="n">path</span>
+        <span class="n">all_args</span> <span class="o">=</span> <span class="p">{}</span>
+        <span class="k">if</span> <span class="n">access_token</span><span class="p">:</span>
+            <span class="n">all_args</span><span class="p">[</span><span class="s">&quot;access_token&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">access_token</span>
+            <span class="n">all_args</span><span class="o">.</span><span class="n">update</span><span class="p">(</span><span class="n">args</span><span class="p">)</span>
+
+        <span class="k">if</span> <span class="n">all_args</span><span class="p">:</span>
+            <span class="n">url</span> <span class="o">+=</span> <span class="s">&quot;?&quot;</span> <span class="o">+</span> <span class="n">urllib</span><span class="o">.</span><span class="n">urlencode</span><span class="p">(</span><span class="n">all_args</span><span class="p">)</span>
+        <span class="n">callback</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">async_callback</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_on_facebook_request</span><span class="p">,</span> <span class="n">callback</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">post_args</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="n">httpclient</span><span class="o">.</span><span class="n">fetch</span><span class="p">(</span><span class="n">url</span><span class="p">,</span> <span class="n">method</span><span class="o">=</span><span class="s">&quot;POST&quot;</span><span class="p">,</span>
+                    <span class="n">body</span><span class="o">=</span><span class="n">urllib</span><span class="o">.</span><span class="n">urlencode</span><span class="p">(</span><span class="n">post_args</span><span class="p">))</span><span class="o">.</span><span class="n">addCallback</span><span class="p">(</span><span class="n">callback</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">httpclient</span><span class="o">.</span><span class="n">fetch</span><span class="p">(</span><span class="n">url</span><span class="p">)</span><span class="o">.</span><span class="n">addCallback</span><span class="p">(</span><span class="n">callback</span><span class="p">)</span>
+</div>
+    <span class="k">def</span> <span class="nf">_on_facebook_request</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">callback</span><span class="p">,</span> <span class="n">response</span><span class="p">):</span>
+        <span class="k">if</span> <span class="n">response</span><span class="o">.</span><span class="n">error</span><span class="p">:</span>
+            <span class="n">log</span><span class="o">.</span><span class="n">warning</span><span class="p">(</span><span class="s">&quot;Error response </span><span class="si">%s</span><span class="s"> fetching </span><span class="si">%s</span><span class="s">&quot;</span><span class="p">,</span> <span class="n">response</span><span class="o">.</span><span class="n">error</span><span class="p">,</span>
+                            <span class="n">response</span><span class="o">.</span><span class="n">request</span><span class="o">.</span><span class="n">url</span><span class="p">)</span>
+            <span class="n">callback</span><span class="p">(</span><span class="bp">None</span><span class="p">)</span>
+            <span class="k">return</span>
+        <span class="n">callback</span><span class="p">(</span><span class="n">escape</span><span class="o">.</span><span class="n">json_decode</span><span class="p">(</span><span class="n">response</span><span class="o">.</span><span class="n">body</span><span class="p">))</span>
+
+</div>
+<span class="k">def</span> <span class="nf">_oauth_signature</span><span class="p">(</span><span class="n">consumer_token</span><span class="p">,</span> <span class="n">method</span><span class="p">,</span> <span class="n">url</span><span class="p">,</span> <span class="n">parameters</span><span class="o">=</span><span class="p">{},</span> <span class="n">token</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;Calculates the HMAC-SHA1 OAuth signature for the given request.</span>
+
+<span class="sd">    See http://oauth.net/core/1.0/#signing_process</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">parts</span> <span class="o">=</span> <span class="n">urlparse</span><span class="o">.</span><span class="n">urlparse</span><span class="p">(</span><span class="n">url</span><span class="p">)</span>
+    <span class="n">scheme</span><span class="p">,</span> <span class="n">netloc</span><span class="p">,</span> <span class="n">path</span> <span class="o">=</span> <span class="n">parts</span><span class="p">[:</span><span class="mi">3</span><span class="p">]</span>
+    <span class="n">normalized_url</span> <span class="o">=</span> <span class="n">scheme</span><span class="o">.</span><span class="n">lower</span><span class="p">()</span> <span class="o">+</span> <span class="s">&quot;://&quot;</span> <span class="o">+</span> <span class="n">netloc</span><span class="o">.</span><span class="n">lower</span><span class="p">()</span> <span class="o">+</span> <span class="n">path</span>
+
+    <span class="n">base_elems</span> <span class="o">=</span> <span class="p">[]</span>
+    <span class="n">base_elems</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">method</span><span class="o">.</span><span class="n">upper</span><span class="p">())</span>
+    <span class="n">base_elems</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">normalized_url</span><span class="p">)</span>
+    <span class="n">base_elems</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s">&quot;&amp;&quot;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="s">&quot;</span><span class="si">%s</span><span class="s">=</span><span class="si">%s</span><span class="s">&quot;</span> <span class="o">%</span> <span class="p">(</span><span class="n">k</span><span class="p">,</span> <span class="n">_oauth_escape</span><span class="p">(</span><span class="nb">str</span><span class="p">(</span><span class="n">v</span><span class="p">)))</span>
+                               <span class="k">for</span> <span class="n">k</span><span class="p">,</span> <span class="n">v</span> <span class="ow">in</span> <span class="nb">sorted</span><span class="p">(</span><span class="n">parameters</span><span class="o">.</span><span class="n">items</span><span class="p">())))</span>
+    <span class="n">base_string</span> <span class="o">=</span> <span class="s">&quot;&amp;&quot;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">_oauth_escape</span><span class="p">(</span><span class="n">e</span><span class="p">)</span> <span class="k">for</span> <span class="n">e</span> <span class="ow">in</span> <span class="n">base_elems</span><span class="p">)</span>
+
+    <span class="n">key_elems</span> <span class="o">=</span> <span class="p">[</span><span class="n">escape</span><span class="o">.</span><span class="n">utf8</span><span class="p">(</span><span class="n">consumer_token</span><span class="p">[</span><span class="s">&quot;secret&quot;</span><span class="p">])]</span>
+    <span class="n">key_elems</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">escape</span><span class="o">.</span><span class="n">utf8</span><span class="p">(</span><span class="n">token</span><span class="p">[</span><span class="s">&quot;secret&quot;</span><span class="p">]</span> <span class="k">if</span> <span class="n">token</span> <span class="k">else</span> <span class="s">&quot;&quot;</span><span class="p">))</span>
+    <span class="n">key</span> <span class="o">=</span> <span class="s">&quot;&amp;&quot;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">key_elems</span><span class="p">)</span>
+
+    <span class="nb">hash</span> <span class="o">=</span> <span class="n">hmac</span><span class="o">.</span><span class="n">new</span><span class="p">(</span><span class="n">key</span><span class="p">,</span> <span class="n">escape</span><span class="o">.</span><span class="n">utf8</span><span class="p">(</span><span class="n">base_string</span><span class="p">),</span> <span class="n">hashlib</span><span class="o">.</span><span class="n">sha1</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">binascii</span><span class="o">.</span><span class="n">b2a_base64</span><span class="p">(</span><span class="nb">hash</span><span class="o">.</span><span class="n">digest</span><span class="p">())[:</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span>
+
+
+<span class="k">def</span> <span class="nf">_oauth10a_signature</span><span class="p">(</span><span class="n">consumer_token</span><span class="p">,</span>
+                        <span class="n">method</span><span class="p">,</span> <span class="n">url</span><span class="p">,</span> <span class="n">parameters</span><span class="o">=</span><span class="p">{},</span> <span class="n">token</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;Calculates the HMAC-SHA1 OAuth 1.0a signature for the given request.</span>
+
+<span class="sd">    See http://oauth.net/core/1.0a/#signing_process</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">parts</span> <span class="o">=</span> <span class="n">urlparse</span><span class="o">.</span><span class="n">urlparse</span><span class="p">(</span><span class="n">url</span><span class="p">)</span>
+    <span class="n">scheme</span><span class="p">,</span> <span class="n">netloc</span><span class="p">,</span> <span class="n">path</span> <span class="o">=</span> <span class="n">parts</span><span class="p">[:</span><span class="mi">3</span><span class="p">]</span>
+    <span class="n">normalized_url</span> <span class="o">=</span> <span class="n">scheme</span><span class="o">.</span><span class="n">lower</span><span class="p">()</span> <span class="o">+</span> <span class="s">&quot;://&quot;</span> <span class="o">+</span> <span class="n">netloc</span><span class="o">.</span><span class="n">lower</span><span class="p">()</span> <span class="o">+</span> <span class="n">path</span>
+
+    <span class="n">base_elems</span> <span class="o">=</span> <span class="p">[]</span>
+    <span class="n">base_elems</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">method</span><span class="o">.</span><span class="n">upper</span><span class="p">())</span>
+    <span class="n">base_elems</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">normalized_url</span><span class="p">)</span>
+    <span class="n">base_elems</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s">&quot;&amp;&quot;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="s">&quot;</span><span class="si">%s</span><span class="s">=</span><span class="si">%s</span><span class="s">&quot;</span> <span class="o">%</span> <span class="p">(</span><span class="n">k</span><span class="p">,</span> <span class="n">_oauth_escape</span><span class="p">(</span><span class="nb">str</span><span class="p">(</span><span class="n">v</span><span class="p">)))</span>
+                               <span class="k">for</span> <span class="n">k</span><span class="p">,</span> <span class="n">v</span> <span class="ow">in</span> <span class="nb">sorted</span><span class="p">(</span><span class="n">parameters</span><span class="o">.</span><span class="n">items</span><span class="p">())))</span>
+
+    <span class="n">base_string</span> <span class="o">=</span> <span class="s">&quot;&amp;&quot;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">_oauth_escape</span><span class="p">(</span><span class="n">e</span><span class="p">)</span> <span class="k">for</span> <span class="n">e</span> <span class="ow">in</span> <span class="n">base_elems</span><span class="p">)</span>
+    <span class="n">key_elems</span> <span class="o">=</span> <span class="p">[</span><span class="n">escape</span><span class="o">.</span><span class="n">utf8</span><span class="p">(</span>
+                 <span class="n">urllib</span><span class="o">.</span><span class="n">quote</span><span class="p">(</span><span class="n">consumer_token</span><span class="p">[</span><span class="s">&quot;secret&quot;</span><span class="p">],</span> <span class="n">safe</span><span class="o">=</span><span class="s">&#39;~&#39;</span><span class="p">))]</span>
+    <span class="n">key_elems</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">escape</span><span class="o">.</span><span class="n">utf8</span><span class="p">(</span>
+                     <span class="n">urllib</span><span class="o">.</span><span class="n">quote</span><span class="p">(</span><span class="n">token</span><span class="p">[</span><span class="s">&quot;secret&quot;</span><span class="p">],</span> <span class="n">safe</span><span class="o">=</span><span class="s">&#39;~&#39;</span><span class="p">)</span> <span class="k">if</span> <span class="n">token</span> <span class="k">else</span> <span class="s">&quot;&quot;</span><span class="p">))</span>
+    <span class="n">key</span> <span class="o">=</span> <span class="s">&quot;&amp;&quot;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">key_elems</span><span class="p">)</span>
+
+    <span class="nb">hash</span> <span class="o">=</span> <span class="n">hmac</span><span class="o">.</span><span class="n">new</span><span class="p">(</span><span class="n">key</span><span class="p">,</span> <span class="n">escape</span><span class="o">.</span><span class="n">utf8</span><span class="p">(</span><span class="n">base_string</span><span class="p">),</span> <span class="n">hashlib</span><span class="o">.</span><span class="n">sha1</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">binascii</span><span class="o">.</span><span class="n">b2a_base64</span><span class="p">(</span><span class="nb">hash</span><span class="o">.</span><span class="n">digest</span><span class="p">())[:</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span>
+
+
+<span class="k">def</span> <span class="nf">_oauth_escape</span><span class="p">(</span><span class="n">val</span><span class="p">):</span>
+    <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">val</span><span class="p">,</span> <span class="n">unicode_type</span><span class="p">):</span>
+        <span class="n">val</span> <span class="o">=</span> <span class="n">val</span><span class="o">.</span><span class="n">encode</span><span class="p">(</span><span class="s">&quot;utf-8&quot;</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">urllib</span><span class="o">.</span><span class="n">quote</span><span class="p">(</span><span class="n">val</span><span class="p">,</span> <span class="n">safe</span><span class="o">=</span><span class="s">&quot;~&quot;</span><span class="p">)</span>
+
+
+<span class="k">def</span> <span class="nf">_oauth_parse_response</span><span class="p">(</span><span class="n">body</span><span class="p">):</span>
+    <span class="n">p</span> <span class="o">=</span> <span class="n">escape</span><span class="o">.</span><span class="n">parse_qs</span><span class="p">(</span><span class="n">body</span><span class="p">,</span> <span class="n">keep_blank_values</span><span class="o">=</span><span class="bp">False</span><span class="p">)</span>
+    <span class="n">token</span> <span class="o">=</span> <span class="nb">dict</span><span class="p">(</span><span class="n">key</span><span class="o">=</span><span class="n">p</span><span class="p">[</span><span class="s">&quot;oauth_token&quot;</span><span class="p">][</span><span class="mi">0</span><span class="p">],</span> <span class="n">secret</span><span class="o">=</span><span class="n">p</span><span class="p">[</span><span class="s">&quot;oauth_token_secret&quot;</span><span class="p">][</span><span class="mi">0</span><span class="p">])</span>
+
+    <span class="c"># Add the extra parameters the Provider included to the token</span>
+    <span class="n">special</span> <span class="o">=</span> <span class="p">(</span><span class="s">&quot;oauth_token&quot;</span><span class="p">,</span> <span class="s">&quot;oauth_token_secret&quot;</span><span class="p">)</span>
+    <span class="n">token</span><span class="o">.</span><span class="n">update</span><span class="p">((</span><span class="n">k</span><span class="p">,</span> <span class="n">p</span><span class="p">[</span><span class="n">k</span><span class="p">][</span><span class="mi">0</span><span class="p">])</span> <span class="k">for</span> <span class="n">k</span> <span class="ow">in</span> <span class="n">p</span> <span class="k">if</span> <span class="n">k</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">special</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">token</span>
+</pre></div>
+
+          </div>
+        </div>
+      </div>
+      <div class="sphinxsidebar">
+        <div class="sphinxsidebarwrapper">
+<div id="searchbox" style="display: none">
+  <h3>Quick search</h3>
+    <form class="search" action="../../search.html" method="get">
+      <input type="text" name="q" />
+      <input type="submit" value="Go" />
+      <input type="hidden" name="check_keywords" value="yes" />
+      <input type="hidden" name="area" value="default" />
+    </form>
+    <p class="searchtip" style="font-size: 90%">
+    Enter search terms or a module, class or function name.
+    </p>
+</div>
+<script type="text/javascript">$('#searchbox').show(0);</script>
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="related">
+      <h3>Navigation</h3>
+      <ul>
+        <li class="right" style="margin-right: 10px">
+          <a href="../../genindex.html" title="General Index"
+             >index</a></li>
+        <li class="right" >
+          <a href="../../py-modindex.html" title="Python Module Index"
+             >modules</a> |</li>
+        <li><a href="../../index.html">cyclone git-2013042301 documentation</a> &raquo;</li>
+          <li><a href="../index.html" >Module code</a> &raquo;</li> 
+      </ul>
+    </div>
+    <div class="footer">
+        &copy; Copyright 2013, Alexandre Fiori.
+      Created using <a href="http://sphinx.pocoo.org/">Sphinx</a> 1.1.3.
+    </div>
+  </body>
+</html>

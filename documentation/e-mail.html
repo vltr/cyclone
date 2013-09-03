@@ -1,0 +1,181 @@
+
+
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"
+  "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+
+
+<html xmlns="http://www.w3.org/1999/xhtml">
+  <head>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+    
+    <title>cyclone.mail — Send e-mails with attachments &mdash; cyclone git-2013042301 documentation</title>
+    
+    <link rel="stylesheet" href="_static/sphinx.css" type="text/css" />
+    <link rel="stylesheet" href="_static/pygments.css" type="text/css" />
+    
+    <script type="text/javascript">
+      var DOCUMENTATION_OPTIONS = {
+        URL_ROOT:    '',
+        VERSION:     'git-2013042301',
+        COLLAPSE_INDEX: false,
+        FILE_SUFFIX: '.html',
+        HAS_SOURCE:  true
+      };
+    </script>
+    <script type="text/javascript" src="_static/jquery.js"></script>
+    <script type="text/javascript" src="_static/underscore.js"></script>
+    <script type="text/javascript" src="_static/doctools.js"></script>
+    <link rel="top" title="cyclone git-2013042301 documentation" href="index.html" />
+    <link rel="up" title="Asynchronous networking" href="networking.html" />
+    <link rel="next" title="Integration with other services" href="integration.html" />
+    <link rel="prev" title="cyclone.httpclient — Non-blocking HTTP client" href="httpclient.html" /> 
+  </head>
+  <body>
+    <div class="related">
+      <h3>Navigation</h3>
+      <ul>
+        <li class="right" style="margin-right: 10px">
+          <a href="genindex.html" title="General Index"
+             accesskey="I">index</a></li>
+        <li class="right" >
+          <a href="py-modindex.html" title="Python Module Index"
+             >modules</a> |</li>
+        <li class="right" >
+          <a href="integration.html" title="Integration with other services"
+             accesskey="N">next</a> |</li>
+        <li class="right" >
+          <a href="httpclient.html" title="cyclone.httpclient — Non-blocking HTTP client"
+             accesskey="P">previous</a> |</li>
+        <li><a href="index.html">cyclone git-2013042301 documentation</a> &raquo;</li>
+          <li><a href="networking.html" accesskey="U">Asynchronous networking</a> &raquo;</li> 
+      </ul>
+    </div>  
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          <div class="body">
+            
+  <div class="section" id="module-cyclone.mail">
+<span id="cyclone-mail-send-e-mails-with-attachments"></span><h1><tt class="docutils literal"><span class="pre">cyclone.mail</span></tt> &#8212; Send e-mails with attachments<a class="headerlink" href="#module-cyclone.mail" title="Permalink to this headline">¶</a></h1>
+<p>Support for sending e-mails with attachments to SMTP servers over
+plain text, SSL or TLS.</p>
+<p>For more information, check out the <a class="reference external" href="https://github.com/fiorix/cyclone/tree/master/demos/email">e-mail demo</a>.</p>
+<dl class="class">
+<dt id="cyclone.mail.Message">
+<em class="property">class </em><tt class="descclassname">cyclone.mail.</tt><tt class="descname">Message</tt><big>(</big><em>from_addr</em>, <em>to_addrs</em>, <em>subject</em>, <em>message</em>, <em>mime='text/plain'</em>, <em>charset='utf-8'</em><big>)</big><a class="reference internal" href="_modules/cyclone/mail.html#Message"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#cyclone.mail.Message" title="Permalink to this definition">¶</a></dt>
+<dd><p>Create new e-mail messages.</p>
+<p>Example:</p>
+<div class="highlight-none"><div class="highlight"><pre>msg = mail.Message(
+        from_addr=&quot;root@localhost&quot;,
+        to_addrs=[&quot;user1&quot;, &quot;user2&quot;, &quot;user3&quot;],
+        subject=&quot;Test, 123&quot;,
+        mime=&quot;text/html&quot;)
+</pre></div>
+</div>
+<dl class="method">
+<dt id="cyclone.mail.Message.attach">
+<tt class="descname">attach</tt><big>(</big><em>filename</em>, <em>mime=None</em>, <em>charset=None</em>, <em>content=None</em><big>)</big><a class="reference internal" href="_modules/cyclone/mail.html#Message.attach"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#cyclone.mail.Message.attach" title="Permalink to this definition">¶</a></dt>
+<dd><p>Attach files to this message.</p>
+<p>Example:</p>
+<div class="highlight-none"><div class="highlight"><pre>msg.attach(&quot;me.png&quot;, mime=&quot;image/png&quot;)
+</pre></div>
+</div>
+<p>It also supports fake attachments:</p>
+<div class="highlight-none"><div class="highlight"><pre>msg.attach(&quot;fake.txt&quot;, mime=&quot;text/plain&quot;, content=&quot;gotcha&quot;)
+</pre></div>
+</div>
+</dd></dl>
+
+<dl class="method">
+<dt id="cyclone.mail.Message.add_header">
+<tt class="descname">add_header</tt><big>(</big><em>key</em>, <em>value</em>, <em>**params</em><big>)</big><a class="reference internal" href="_modules/cyclone/mail.html#Message.add_header"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#cyclone.mail.Message.add_header" title="Permalink to this definition">¶</a></dt>
+<dd><p>Adds custom headers to this message.</p>
+<p>Example:</p>
+<div class="highlight-none"><div class="highlight"><pre>msg.add_header(&quot;X-MailTag&quot;, &quot;foobar&quot;)
+</pre></div>
+</div>
+</dd></dl>
+
+</dd></dl>
+
+<dl class="function">
+<dt id="cyclone.mail.sendmail">
+<tt class="descclassname">cyclone.mail.</tt><tt class="descname">sendmail</tt><big>(</big><em>mailconf</em>, <em>message</em><big>)</big><a class="reference internal" href="_modules/cyclone/mail.html#sendmail"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#cyclone.mail.sendmail" title="Permalink to this definition">¶</a></dt>
+<dd><p>Takes a regular dictionary as mailconf, as follows.</p>
+<p>Example:</p>
+<div class="highlight-none"><div class="highlight"><pre>mailconf = dict(
+    host=&quot;smtp.gmail.com&quot;,  # required
+    port=25,                # optional, default 25 or 587 for SSL/TLS
+    username=foo,           # optional, no default
+    password=bar,           # optional, no default
+    tls=True,               # optional, default False
+)
+
+d = mail.sendmail(mailconf, msg)
+d.addCallback(on_response)
+</pre></div>
+</div>
+</dd></dl>
+
+</div>
+
+
+          </div>
+        </div>
+      </div>
+      <div class="sphinxsidebar">
+        <div class="sphinxsidebarwrapper">
+  <h4>Previous topic</h4>
+  <p class="topless"><a href="httpclient.html"
+                        title="previous chapter"><tt class="docutils literal"><span class="pre">cyclone.httpclient</span></tt> &#8212; Non-blocking HTTP client</a></p>
+  <h4>Next topic</h4>
+  <p class="topless"><a href="integration.html"
+                        title="next chapter">Integration with other services</a></p>
+  <h3>This Page</h3>
+  <ul class="this-page-menu">
+    <li><a href="_sources/e-mail.txt"
+           rel="nofollow">Show Source</a></li>
+  </ul>
+<div id="searchbox" style="display: none">
+  <h3>Quick search</h3>
+    <form class="search" action="search.html" method="get">
+      <input type="text" name="q" />
+      <input type="submit" value="Go" />
+      <input type="hidden" name="check_keywords" value="yes" />
+      <input type="hidden" name="area" value="default" />
+    </form>
+    <p class="searchtip" style="font-size: 90%">
+    Enter search terms or a module, class or function name.
+    </p>
+</div>
+<script type="text/javascript">$('#searchbox').show(0);</script>
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="related">
+      <h3>Navigation</h3>
+      <ul>
+        <li class="right" style="margin-right: 10px">
+          <a href="genindex.html" title="General Index"
+             >index</a></li>
+        <li class="right" >
+          <a href="py-modindex.html" title="Python Module Index"
+             >modules</a> |</li>
+        <li class="right" >
+          <a href="integration.html" title="Integration with other services"
+             >next</a> |</li>
+        <li class="right" >
+          <a href="httpclient.html" title="cyclone.httpclient — Non-blocking HTTP client"
+             >previous</a> |</li>
+        <li><a href="index.html">cyclone git-2013042301 documentation</a> &raquo;</li>
+          <li><a href="networking.html" >Asynchronous networking</a> &raquo;</li> 
+      </ul>
+    </div>
+    <div class="footer">
+        &copy; Copyright 2013, Alexandre Fiori.
+      Created using <a href="http://sphinx.pocoo.org/">Sphinx</a> 1.1.3.
+    </div>
+  </body>
+</html>

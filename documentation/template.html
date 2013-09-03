@@ -1,0 +1,350 @@
+
+
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"
+  "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+
+
+<html xmlns="http://www.w3.org/1999/xhtml">
+  <head>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+    
+    <title>cyclone.template — Flexible output generation &mdash; cyclone git-2013042301 documentation</title>
+    
+    <link rel="stylesheet" href="_static/sphinx.css" type="text/css" />
+    <link rel="stylesheet" href="_static/pygments.css" type="text/css" />
+    
+    <script type="text/javascript">
+      var DOCUMENTATION_OPTIONS = {
+        URL_ROOT:    '',
+        VERSION:     'git-2013042301',
+        COLLAPSE_INDEX: false,
+        FILE_SUFFIX: '.html',
+        HAS_SOURCE:  true
+      };
+    </script>
+    <script type="text/javascript" src="_static/jquery.js"></script>
+    <script type="text/javascript" src="_static/underscore.js"></script>
+    <script type="text/javascript" src="_static/doctools.js"></script>
+    <link rel="top" title="cyclone git-2013042301 documentation" href="index.html" />
+    <link rel="up" title="Core web framework" href="webframework.html" />
+    <link rel="next" title="cyclone.escape — Escaping and string manipulation" href="escape.html" />
+    <link rel="prev" title="cyclone.httputil — Manipulate HTTP headers and URLs" href="httputil.html" /> 
+  </head>
+  <body>
+    <div class="related">
+      <h3>Navigation</h3>
+      <ul>
+        <li class="right" style="margin-right: 10px">
+          <a href="genindex.html" title="General Index"
+             accesskey="I">index</a></li>
+        <li class="right" >
+          <a href="py-modindex.html" title="Python Module Index"
+             >modules</a> |</li>
+        <li class="right" >
+          <a href="escape.html" title="cyclone.escape — Escaping and string manipulation"
+             accesskey="N">next</a> |</li>
+        <li class="right" >
+          <a href="httputil.html" title="cyclone.httputil — Manipulate HTTP headers and URLs"
+             accesskey="P">previous</a> |</li>
+        <li><a href="index.html">cyclone git-2013042301 documentation</a> &raquo;</li>
+          <li><a href="webframework.html" accesskey="U">Core web framework</a> &raquo;</li> 
+      </ul>
+    </div>  
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          <div class="body">
+            
+  <div class="section" id="module-cyclone.template">
+<span id="cyclone-template-flexible-output-generation"></span><h1><tt class="docutils literal"><span class="pre">cyclone.template</span></tt> &#8212; Flexible output generation<a class="headerlink" href="#module-cyclone.template" title="Permalink to this headline">¶</a></h1>
+<p>A simple template system that compiles templates to Python code.</p>
+<p>Basic usage looks like:</p>
+<div class="highlight-none"><div class="highlight"><pre>t = template.Template(&quot;&lt;html&gt;{{ myvalue }}&lt;/html&gt;&quot;)
+print t.generate(myvalue=&quot;XXX&quot;)
+</pre></div>
+</div>
+<p>Loader is a class that loads templates from a root directory and caches
+the compiled templates:</p>
+<div class="highlight-none"><div class="highlight"><pre>loader = template.Loader(&quot;/home/btaylor&quot;)
+print loader.load(&quot;test.html&quot;).generate(myvalue=&quot;XXX&quot;)
+</pre></div>
+</div>
+<p>We compile all templates to raw Python. Error-reporting is currently... uh,
+interesting. Syntax for the templates:</p>
+<div class="highlight-none"><div class="highlight"><pre>### base.html
+&lt;html&gt;
+  &lt;head&gt;
+    &lt;title&gt;{% block title %}Default title{% end %}&lt;/title&gt;
+  &lt;/head&gt;
+  &lt;body&gt;
+    &lt;ul&gt;
+      {% for student in students %}
+        {% block student %}
+          &lt;li&gt;{{ escape(student.name) }}&lt;/li&gt;
+        {% end %}
+      {% end %}
+    &lt;/ul&gt;
+  &lt;/body&gt;
+&lt;/html&gt;
+
+### bold.html
+{% extends &quot;base.html&quot; %}
+
+{% block title %}A bolder title{% end %}
+
+{% block student %}
+  &lt;li&gt;&lt;span style=&quot;bold&quot;&gt;{{ escape(student.name) }}&lt;/span&gt;&lt;/li&gt;
+{% end %}
+</pre></div>
+</div>
+<p>Unlike most other template systems, we do not put any restrictions on the
+expressions you can include in your statements. if and for blocks get
+translated exactly into Python, you can do complex expressions like:</p>
+<div class="highlight-none"><div class="highlight"><pre>{% for student in [p for p in people if p.student and p.age &gt; 23] %}
+  &lt;li&gt;{{ escape(student.name) }}&lt;/li&gt;
+{% end %}
+</pre></div>
+</div>
+<p>Translating directly to Python means you can apply functions to expressions
+easily, like the escape() function in the examples above. You can pass
+functions in to your template just like any other variable:</p>
+<div class="highlight-none"><div class="highlight"><pre>### Python code
+def add(x, y):
+   return x + y
+template.execute(add=add)
+
+### The template
+{{ add(1, 2) }}
+</pre></div>
+</div>
+<p>We provide the functions escape(), url_escape(), json_encode(), and squeeze()
+to all templates by default.</p>
+<p>Typical applications do not create <a class="reference internal" href="#cyclone.template.Template" title="cyclone.template.Template"><tt class="xref py py-obj docutils literal"><span class="pre">Template</span></tt></a> or <a class="reference internal" href="#cyclone.template.Loader" title="cyclone.template.Loader"><tt class="xref py py-obj docutils literal"><span class="pre">Loader</span></tt></a> instances by
+hand, but instead use the <tt class="xref py py-obj docutils literal"><span class="pre">render</span></tt> and <tt class="xref py py-obj docutils literal"><span class="pre">render_string</span></tt> methods of
+<a class="reference internal" href="web.html#cyclone.web.RequestHandler" title="cyclone.web.RequestHandler"><tt class="xref py py-obj docutils literal"><span class="pre">cyclone.web.RequestHandler</span></tt></a>, which load templates automatically based
+on the <tt class="docutils literal"><span class="pre">template_path</span></tt> <tt class="xref py py-obj docutils literal"><span class="pre">Application</span></tt> setting.</p>
+<div class="section" id="syntax-reference">
+<h2>Syntax Reference<a class="headerlink" href="#syntax-reference" title="Permalink to this headline">¶</a></h2>
+<p>Template expressions are surrounded by double curly braces: <tt class="docutils literal"><span class="pre">{{</span> <span class="pre">...</span> <span class="pre">}}</span></tt>.
+The contents may be any python expression, which will be escaped according
+to the current autoescape setting and inserted into the output.  Other
+template directives use <tt class="docutils literal"><span class="pre">{%</span> <span class="pre">%}</span></tt>.  These tags may be escaped as <tt class="docutils literal"><span class="pre">{{!</span></tt>
+and <tt class="docutils literal"><span class="pre">{%!</span></tt> if you need to include a literal <tt class="docutils literal"><span class="pre">{{</span></tt> or <tt class="docutils literal"><span class="pre">{%</span></tt> in the output.</p>
+<p>To comment out a section so that it is omitted from the output, surround it
+with <tt class="docutils literal"><span class="pre">{#</span> <span class="pre">...</span> <span class="pre">#}</span></tt>.</p>
+<dl class="docutils">
+<dt><tt class="docutils literal"><span class="pre">{%</span> <span class="pre">apply</span> <span class="pre">*function*</span> <span class="pre">%}...{%</span> <span class="pre">end</span> <span class="pre">%}</span></tt></dt>
+<dd><p class="first">Applies a function to the output of all template code between <tt class="docutils literal"><span class="pre">apply</span></tt>
+and <tt class="docutils literal"><span class="pre">end</span></tt>:</p>
+<div class="highlight-none"><div class="highlight"><pre>{% apply linkify %}{{name}} said: {{message}}{% end %}
+</pre></div>
+</div>
+<p class="last">Note that as an implementation detail apply blocks are implemented
+as nested functions and thus may interact strangely with variables
+set via <tt class="docutils literal"><span class="pre">{%</span> <span class="pre">set</span> <span class="pre">%}</span></tt>, or the use of <tt class="docutils literal"><span class="pre">{%</span> <span class="pre">break</span> <span class="pre">%}</span></tt> or <tt class="docutils literal"><span class="pre">{%</span> <span class="pre">continue</span> <span class="pre">%}</span></tt>
+within loops.</p>
+</dd>
+<dt><tt class="docutils literal"><span class="pre">{%</span> <span class="pre">autoescape</span> <span class="pre">*function*</span> <span class="pre">%}</span></tt></dt>
+<dd><p class="first">Sets the autoescape mode for the current file.  This does not affect
+other files, even those referenced by <tt class="docutils literal"><span class="pre">{%</span> <span class="pre">include</span> <span class="pre">%}</span></tt>.  Note that
+autoescaping can also be configured globally, at the <tt class="xref py py-obj docutils literal"><span class="pre">Application</span></tt>
+or <a class="reference internal" href="#cyclone.template.Loader" title="cyclone.template.Loader"><tt class="xref py py-obj docutils literal"><span class="pre">Loader</span></tt></a>.:</p>
+<div class="last highlight-none"><div class="highlight"><pre>{% autoescape xhtml_escape %}
+{% autoescape None %}
+</pre></div>
+</div>
+</dd>
+<dt><tt class="docutils literal"><span class="pre">{%</span> <span class="pre">block</span> <span class="pre">*name*</span> <span class="pre">%}...{%</span> <span class="pre">end</span> <span class="pre">%}</span></tt></dt>
+<dd><p class="first">Indicates a named, replaceable block for use with <tt class="docutils literal"><span class="pre">{%</span> <span class="pre">extends</span> <span class="pre">%}</span></tt>.
+Blocks in the parent template will be replaced with the contents of
+the same-named block in a child template.:</p>
+<div class="last highlight-none"><div class="highlight"><pre>&lt;!-- base.html --&gt;
+&lt;title&gt;{% block title %}Default title{% end %}&lt;/title&gt;
+
+&lt;!-- mypage.html --&gt;
+{% extends &quot;base.html&quot; %}
+{% block title %}My page title{% end %}
+</pre></div>
+</div>
+</dd>
+<dt><tt class="docutils literal"><span class="pre">{%</span> <span class="pre">comment</span> <span class="pre">...</span> <span class="pre">%}</span></tt></dt>
+<dd>A comment which will be removed from the template output.  Note that
+there is no <tt class="docutils literal"><span class="pre">{%</span> <span class="pre">end</span> <span class="pre">%}</span></tt> tag; the comment goes from the word <tt class="docutils literal"><span class="pre">comment</span></tt>
+to the closing <tt class="docutils literal"><span class="pre">%}</span></tt> tag.</dd>
+<dt><tt class="docutils literal"><span class="pre">{%</span> <span class="pre">extends</span> <span class="pre">*filename*</span> <span class="pre">%}</span></tt></dt>
+<dd>Inherit from another template.  Templates that use <tt class="docutils literal"><span class="pre">extends</span></tt> should
+contain one or more <tt class="docutils literal"><span class="pre">block</span></tt> tags to replace content from the parent
+template.  Anything in the child template not contained in a <tt class="docutils literal"><span class="pre">block</span></tt>
+tag will be ignored.  For an example, see the <tt class="docutils literal"><span class="pre">{%</span> <span class="pre">block</span> <span class="pre">%}</span></tt> tag.</dd>
+<dt><tt class="docutils literal"><span class="pre">{%</span> <span class="pre">for</span> <span class="pre">*var*</span> <span class="pre">in</span> <span class="pre">*expr*</span> <span class="pre">%}...{%</span> <span class="pre">end</span> <span class="pre">%}</span></tt></dt>
+<dd>Same as the python <tt class="docutils literal"><span class="pre">for</span></tt> statement.  <tt class="docutils literal"><span class="pre">{%</span> <span class="pre">break</span> <span class="pre">%}</span></tt> and
+<tt class="docutils literal"><span class="pre">{%</span> <span class="pre">continue</span> <span class="pre">%}</span></tt> may be used inside the loop.</dd>
+<dt><tt class="docutils literal"><span class="pre">{%</span> <span class="pre">from</span> <span class="pre">*x*</span> <span class="pre">import</span> <span class="pre">*y*</span> <span class="pre">%}</span></tt></dt>
+<dd>Same as the python <tt class="docutils literal"><span class="pre">import</span></tt> statement.</dd>
+<dt><tt class="docutils literal"><span class="pre">{%</span> <span class="pre">if</span> <span class="pre">*condition*</span> <span class="pre">%}...{%</span> <span class="pre">elif</span> <span class="pre">*condition*</span> <span class="pre">%}...{%</span> <span class="pre">else</span> <span class="pre">%}...{%</span> <span class="pre">end</span> <span class="pre">%}</span></tt></dt>
+<dd>Conditional statement - outputs the first section whose condition is
+true.  (The <tt class="docutils literal"><span class="pre">elif</span></tt> and <tt class="docutils literal"><span class="pre">else</span></tt> sections are optional)</dd>
+<dt><tt class="docutils literal"><span class="pre">{%</span> <span class="pre">import</span> <span class="pre">*module*</span> <span class="pre">%}</span></tt></dt>
+<dd>Same as the python <tt class="docutils literal"><span class="pre">import</span></tt> statement.</dd>
+<dt><tt class="docutils literal"><span class="pre">{%</span> <span class="pre">include</span> <span class="pre">*filename*</span> <span class="pre">%}</span></tt></dt>
+<dd>Includes another template file.  The included file can see all the local
+variables as if it were copied directly to the point of the <tt class="docutils literal"><span class="pre">include</span></tt>
+directive (the <tt class="docutils literal"><span class="pre">{%</span> <span class="pre">autoescape</span> <span class="pre">%}</span></tt> directive is an exception).
+Alternately, <tt class="docutils literal"><span class="pre">{%</span> <span class="pre">module</span> <span class="pre">Template(filename,</span> <span class="pre">**kwargs)</span> <span class="pre">%}</span></tt> may be used
+to include another template with an isolated namespace.</dd>
+<dt><tt class="docutils literal"><span class="pre">{%</span> <span class="pre">module</span> <span class="pre">*expr*</span> <span class="pre">%}</span></tt></dt>
+<dd><p class="first">Renders a <a class="reference internal" href="web.html#cyclone.web.UIModule" title="cyclone.web.UIModule"><tt class="xref py py-obj docutils literal"><span class="pre">UIModule</span></tt></a>.  The output of the <tt class="docutils literal"><span class="pre">UIModule</span></tt> is
+not escaped:</p>
+<div class="last highlight-none"><div class="highlight"><pre>{% module Template(&quot;foo.html&quot;, arg=42) %}
+</pre></div>
+</div>
+</dd>
+<dt><tt class="docutils literal"><span class="pre">{%</span> <span class="pre">raw</span> <span class="pre">*expr*</span> <span class="pre">%}</span></tt></dt>
+<dd>Outputs the result of the given expression without autoescaping.</dd>
+<dt><tt class="docutils literal"><span class="pre">{%</span> <span class="pre">set</span> <span class="pre">*x*</span> <span class="pre">=</span> <span class="pre">*y*</span> <span class="pre">%}</span></tt></dt>
+<dd>Sets a local variable.</dd>
+<dt><tt class="docutils literal"><span class="pre">{%</span> <span class="pre">try</span> <span class="pre">%}...{%</span> <span class="pre">except</span> <span class="pre">%}...{%</span> <span class="pre">finally</span> <span class="pre">%}...{%</span> <span class="pre">else</span> <span class="pre">%}...{%</span> <span class="pre">end</span> <span class="pre">%}</span></tt></dt>
+<dd>Same as the python <tt class="docutils literal"><span class="pre">try</span></tt> statement.</dd>
+<dt><tt class="docutils literal"><span class="pre">{%</span> <span class="pre">while</span> <span class="pre">*condition*</span> <span class="pre">%}...</span> <span class="pre">{%</span> <span class="pre">end</span> <span class="pre">%}</span></tt></dt>
+<dd>Same as the python <tt class="docutils literal"><span class="pre">while</span></tt> statement.  <tt class="docutils literal"><span class="pre">{%</span> <span class="pre">break</span> <span class="pre">%}</span></tt> and
+<tt class="docutils literal"><span class="pre">{%</span> <span class="pre">continue</span> <span class="pre">%}</span></tt> may be used inside the loop.</dd>
+</dl>
+</div>
+<div class="section" id="class-reference">
+<h2>Class reference<a class="headerlink" href="#class-reference" title="Permalink to this headline">¶</a></h2>
+<dl class="class">
+<dt id="cyclone.template.Template">
+<em class="property">class </em><tt class="descclassname">cyclone.template.</tt><tt class="descname">Template</tt><big>(</big><em>template_string</em>, <em>name=&quot;&lt;string&gt;&quot;</em>, <em>loader=None</em>, <em>compress_whitespace=None</em>, <em>autoescape=&quot;xhtml_escape&quot;</em><big>)</big><a class="reference internal" href="_modules/cyclone/template.html#Template"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#cyclone.template.Template" title="Permalink to this definition">¶</a></dt>
+<dd><p>A compiled template.</p>
+<p>We compile into Python from the given template_string. You can generate
+the template from variables with generate().</p>
+<dl class="method">
+<dt id="cyclone.template.Template.generate">
+<tt class="descname">generate</tt><big>(</big><em>**kwargs</em><big>)</big><a class="reference internal" href="_modules/cyclone/template.html#Template.generate"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#cyclone.template.Template.generate" title="Permalink to this definition">¶</a></dt>
+<dd><p>Generate this template with the given arguments.</p>
+</dd></dl>
+
+</dd></dl>
+
+<dl class="class">
+<dt id="cyclone.template.BaseLoader">
+<em class="property">class </em><tt class="descclassname">cyclone.template.</tt><tt class="descname">BaseLoader</tt><big>(</big><em>autoescape='xhtml_escape'</em>, <em>namespace=None</em><big>)</big><a class="reference internal" href="_modules/cyclone/template.html#BaseLoader"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#cyclone.template.BaseLoader" title="Permalink to this definition">¶</a></dt>
+<dd><p>Base class for template loaders.</p>
+<p>Creates a template loader.</p>
+<p>root_directory may be the empty string if this loader does not
+use the filesystem.</p>
+<p>autoescape must be either None or a string naming a function
+in the template namespace, such as &#8220;xhtml_escape&#8221;.</p>
+<dl class="method">
+<dt id="cyclone.template.BaseLoader.reset">
+<tt class="descname">reset</tt><big>(</big><big>)</big><a class="reference internal" href="_modules/cyclone/template.html#BaseLoader.reset"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#cyclone.template.BaseLoader.reset" title="Permalink to this definition">¶</a></dt>
+<dd><p>Resets the cache of compiled templates.</p>
+</dd></dl>
+
+<dl class="method">
+<dt id="cyclone.template.BaseLoader.resolve_path">
+<tt class="descname">resolve_path</tt><big>(</big><em>name</em>, <em>parent_path=None</em><big>)</big><a class="reference internal" href="_modules/cyclone/template.html#BaseLoader.resolve_path"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#cyclone.template.BaseLoader.resolve_path" title="Permalink to this definition">¶</a></dt>
+<dd><p>Converts a possibly-relative path to absolute (used internally).</p>
+</dd></dl>
+
+<dl class="method">
+<dt id="cyclone.template.BaseLoader.load">
+<tt class="descname">load</tt><big>(</big><em>name</em>, <em>parent_path=None</em><big>)</big><a class="reference internal" href="_modules/cyclone/template.html#BaseLoader.load"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#cyclone.template.BaseLoader.load" title="Permalink to this definition">¶</a></dt>
+<dd><p>Loads a template.</p>
+</dd></dl>
+
+</dd></dl>
+
+<dl class="class">
+<dt id="cyclone.template.Loader">
+<em class="property">class </em><tt class="descclassname">cyclone.template.</tt><tt class="descname">Loader</tt><big>(</big><em>root_directory</em>, <em>**kwargs</em><big>)</big><a class="reference internal" href="_modules/cyclone/template.html#Loader"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#cyclone.template.Loader" title="Permalink to this definition">¶</a></dt>
+<dd><p>A template loader that loads from a single root directory.</p>
+<p>You must use a template loader to use template constructs like
+{% extends %} and {% include %}. Loader caches all templates after
+they are loaded the first time.</p>
+</dd></dl>
+
+<dl class="class">
+<dt id="cyclone.template.DictLoader">
+<em class="property">class </em><tt class="descclassname">cyclone.template.</tt><tt class="descname">DictLoader</tt><big>(</big><em>dict</em>, <em>**kwargs</em><big>)</big><a class="reference internal" href="_modules/cyclone/template.html#DictLoader"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#cyclone.template.DictLoader" title="Permalink to this definition">¶</a></dt>
+<dd><p>A template loader that loads from a dictionary.</p>
+</dd></dl>
+
+<dl class="exception">
+<dt id="cyclone.template.ParseError">
+<em class="property">exception </em><tt class="descclassname">cyclone.template.</tt><tt class="descname">ParseError</tt><a class="reference internal" href="_modules/cyclone/template.html#ParseError"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#cyclone.template.ParseError" title="Permalink to this definition">¶</a></dt>
+<dd><p>Raised for template syntax errors.</p>
+</dd></dl>
+
+</div>
+</div>
+
+
+          </div>
+        </div>
+      </div>
+      <div class="sphinxsidebar">
+        <div class="sphinxsidebarwrapper">
+  <h3><a href="index.html">Table Of Contents</a></h3>
+  <ul>
+<li><a class="reference internal" href="#"><tt class="docutils literal"><span class="pre">cyclone.template</span></tt> &#8212; Flexible output generation</a><ul>
+<li><a class="reference internal" href="#syntax-reference">Syntax Reference</a></li>
+<li><a class="reference internal" href="#class-reference">Class reference</a></li>
+</ul>
+</li>
+</ul>
+
+  <h4>Previous topic</h4>
+  <p class="topless"><a href="httputil.html"
+                        title="previous chapter"><tt class="docutils literal docutils literal docutils literal"><span class="pre">cyclone.httputil</span></tt> &#8212; Manipulate HTTP headers and URLs</a></p>
+  <h4>Next topic</h4>
+  <p class="topless"><a href="escape.html"
+                        title="next chapter"><tt class="docutils literal docutils literal docutils literal"><span class="pre">cyclone.escape</span></tt> &#8212; Escaping and string manipulation</a></p>
+  <h3>This Page</h3>
+  <ul class="this-page-menu">
+    <li><a href="_sources/template.txt"
+           rel="nofollow">Show Source</a></li>
+  </ul>
+<div id="searchbox" style="display: none">
+  <h3>Quick search</h3>
+    <form class="search" action="search.html" method="get">
+      <input type="text" name="q" />
+      <input type="submit" value="Go" />
+      <input type="hidden" name="check_keywords" value="yes" />
+      <input type="hidden" name="area" value="default" />
+    </form>
+    <p class="searchtip" style="font-size: 90%">
+    Enter search terms or a module, class or function name.
+    </p>
+</div>
+<script type="text/javascript">$('#searchbox').show(0);</script>
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="related">
+      <h3>Navigation</h3>
+      <ul>
+        <li class="right" style="margin-right: 10px">
+          <a href="genindex.html" title="General Index"
+             >index</a></li>
+        <li class="right" >
+          <a href="py-modindex.html" title="Python Module Index"
+             >modules</a> |</li>
+        <li class="right" >
+          <a href="escape.html" title="cyclone.escape — Escaping and string manipulation"
+             >next</a> |</li>
+        <li class="right" >
+          <a href="httputil.html" title="cyclone.httputil — Manipulate HTTP headers and URLs"
+             >previous</a> |</li>
+        <li><a href="index.html">cyclone git-2013042301 documentation</a> &raquo;</li>
+          <li><a href="webframework.html" >Core web framework</a> &raquo;</li> 
+      </ul>
+    </div>
+    <div class="footer">
+        &copy; Copyright 2013, Alexandre Fiori.
+      Created using <a href="http://sphinx.pocoo.org/">Sphinx</a> 1.1.3.
+    </div>
+  </body>
+</html>

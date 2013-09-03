@@ -1,0 +1,420 @@
+
+
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"
+  "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+
+
+<html xmlns="http://www.w3.org/1999/xhtml">
+  <head>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+    
+    <title>cyclone.httputil &mdash; cyclone git-2013042301 documentation</title>
+    
+    <link rel="stylesheet" href="../../_static/sphinx.css" type="text/css" />
+    <link rel="stylesheet" href="../../_static/pygments.css" type="text/css" />
+    
+    <script type="text/javascript">
+      var DOCUMENTATION_OPTIONS = {
+        URL_ROOT:    '../../',
+        VERSION:     'git-2013042301',
+        COLLAPSE_INDEX: false,
+        FILE_SUFFIX: '.html',
+        HAS_SOURCE:  true
+      };
+    </script>
+    <script type="text/javascript" src="../../_static/jquery.js"></script>
+    <script type="text/javascript" src="../../_static/underscore.js"></script>
+    <script type="text/javascript" src="../../_static/doctools.js"></script>
+    <link rel="top" title="cyclone git-2013042301 documentation" href="../../index.html" />
+    <link rel="up" title="Module code" href="../index.html" /> 
+  </head>
+  <body>
+    <div class="related">
+      <h3>Navigation</h3>
+      <ul>
+        <li class="right" style="margin-right: 10px">
+          <a href="../../genindex.html" title="General Index"
+             accesskey="I">index</a></li>
+        <li class="right" >
+          <a href="../../py-modindex.html" title="Python Module Index"
+             >modules</a> |</li>
+        <li><a href="../../index.html">cyclone git-2013042301 documentation</a> &raquo;</li>
+          <li><a href="../index.html" accesskey="U">Module code</a> &raquo;</li> 
+      </ul>
+    </div>  
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          <div class="body">
+            
+  <h1>Source code for cyclone.httputil</h1><div class="highlight"><pre>
+<span class="c"># coding: utf-8</span>
+<span class="c">#</span>
+<span class="c"># Copyright 2010 Alexandre Fiori</span>
+<span class="c"># based on the original Tornado by Facebook</span>
+<span class="c">#</span>
+<span class="c"># Licensed under the Apache License, Version 2.0 (the &quot;License&quot;); you may</span>
+<span class="c"># not use this file except in compliance with the License. You may obtain</span>
+<span class="c"># a copy of the License at</span>
+<span class="c">#</span>
+<span class="c">#     http://www.apache.org/licenses/LICENSE-2.0</span>
+<span class="c">#</span>
+<span class="c"># Unless required by applicable law or agreed to in writing, software</span>
+<span class="c"># distributed under the License is distributed on an &quot;AS IS&quot; BASIS, WITHOUT</span>
+<span class="c"># WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the</span>
+<span class="c"># License for the specific language governing permissions and limitations</span>
+<span class="c"># under the License.</span>
+
+<span class="sd">&quot;&quot;&quot;HTTP utility code shared by clients and servers.&quot;&quot;&quot;</span>
+
+<span class="kn">from</span> <span class="nn">__future__</span> <span class="kn">import</span> <span class="n">absolute_import</span><span class="p">,</span> <span class="n">division</span><span class="p">,</span> <span class="n">with_statement</span>
+
+<span class="kn">import</span> <span class="nn">re</span>
+
+<span class="kn">from</span> <span class="nn">cyclone.util</span> <span class="kn">import</span> <span class="n">ObjectDict</span>
+<span class="kn">from</span> <span class="nn">cyclone.escape</span> <span class="kn">import</span> <span class="n">native_str</span>
+<span class="kn">from</span> <span class="nn">cyclone.escape</span> <span class="kn">import</span> <span class="n">parse_qs_bytes</span>
+<span class="kn">from</span> <span class="nn">cyclone.escape</span> <span class="kn">import</span> <span class="n">utf8</span>
+
+<span class="kn">from</span> <span class="nn">twisted.python</span> <span class="kn">import</span> <span class="n">log</span>
+<span class="kn">from</span> <span class="nn">urllib</span> <span class="kn">import</span> <span class="n">urlencode</span>  <span class="c"># py2</span>
+
+
+<div class="viewcode-block" id="HTTPHeaders"><a class="viewcode-back" href="../../httputil.html#cyclone.httputil.HTTPHeaders">[docs]</a><span class="k">class</span> <span class="nc">HTTPHeaders</span><span class="p">(</span><span class="nb">dict</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;A dictionary that maintains Http-Header-Case for all keys.</span>
+
+<span class="sd">    Supports multiple values per key via a pair of new methods,</span>
+<span class="sd">    add() and get_list().  The regular dictionary interface returns a single</span>
+<span class="sd">    value per key, with multiple values joined by a comma.</span>
+
+<span class="sd">    &gt;&gt;&gt; h = HTTPHeaders({&quot;content-type&quot;: &quot;text/html&quot;})</span>
+<span class="sd">    &gt;&gt;&gt; list(h.keys())</span>
+<span class="sd">    [&#39;Content-Type&#39;]</span>
+<span class="sd">    &gt;&gt;&gt; h[&quot;Content-Type&quot;]</span>
+<span class="sd">    &#39;text/html&#39;</span>
+
+<span class="sd">    &gt;&gt;&gt; h.add(&quot;Set-Cookie&quot;, &quot;A=B&quot;)</span>
+<span class="sd">    &gt;&gt;&gt; h.add(&quot;Set-Cookie&quot;, &quot;C=D&quot;)</span>
+<span class="sd">    &gt;&gt;&gt; h[&quot;set-cookie&quot;]</span>
+<span class="sd">    &#39;A=B,C=D&#39;</span>
+<span class="sd">    &gt;&gt;&gt; h.get_list(&quot;set-cookie&quot;)</span>
+<span class="sd">    [&#39;A=B&#39;, &#39;C=D&#39;]</span>
+
+<span class="sd">    &gt;&gt;&gt; for (k,v) in sorted(h.get_all()):</span>
+<span class="sd">    ...    print(&#39;%s: %s&#39; % (k,v))</span>
+<span class="sd">    ...</span>
+<span class="sd">    Content-Type: text/html</span>
+<span class="sd">    Set-Cookie: A=B</span>
+<span class="sd">    Set-Cookie: C=D</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">):</span>
+        <span class="c"># Don&#39;t pass args or kwargs to dict.__init__, as it will bypass</span>
+        <span class="c"># our __setitem__</span>
+        <span class="nb">dict</span><span class="o">.</span><span class="n">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_as_list</span> <span class="o">=</span> <span class="p">{}</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_last_key</span> <span class="o">=</span> <span class="bp">None</span>
+        <span class="k">if</span> <span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">args</span><span class="p">)</span> <span class="o">==</span> <span class="mi">1</span> <span class="ow">and</span> <span class="nb">len</span><span class="p">(</span><span class="n">kwargs</span><span class="p">)</span> <span class="o">==</span> <span class="mi">0</span> <span class="ow">and</span>
+            <span class="nb">isinstance</span><span class="p">(</span><span class="n">args</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span> <span class="n">HTTPHeaders</span><span class="p">)):</span>
+            <span class="c"># Copy constructor</span>
+            <span class="k">for</span> <span class="n">k</span><span class="p">,</span> <span class="n">v</span> <span class="ow">in</span> <span class="n">args</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">get_all</span><span class="p">():</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">add</span><span class="p">(</span><span class="n">k</span><span class="p">,</span> <span class="n">v</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="c"># Dict-style initialization</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">update</span><span class="p">(</span><span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">)</span>
+
+    <span class="c"># new public methods</span>
+
+<div class="viewcode-block" id="HTTPHeaders.add"><a class="viewcode-back" href="../../httputil.html#cyclone.httputil.HTTPHeaders.add">[docs]</a>    <span class="k">def</span> <span class="nf">add</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">name</span><span class="p">,</span> <span class="n">value</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Adds a new value for the given key.&quot;&quot;&quot;</span>
+        <span class="n">norm_name</span> <span class="o">=</span> <span class="n">HTTPHeaders</span><span class="o">.</span><span class="n">_normalize_name</span><span class="p">(</span><span class="n">name</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_last_key</span> <span class="o">=</span> <span class="n">norm_name</span>
+        <span class="k">if</span> <span class="n">norm_name</span> <span class="ow">in</span> <span class="bp">self</span><span class="p">:</span>
+            <span class="c"># bypass our override of __setitem__ since it modifies _as_list</span>
+            <span class="nb">dict</span><span class="o">.</span><span class="n">__setitem__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">norm_name</span><span class="p">,</span> <span class="bp">self</span><span class="p">[</span><span class="n">norm_name</span><span class="p">]</span> <span class="o">+</span> <span class="s">&#39;,&#39;</span> <span class="o">+</span> <span class="n">value</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_as_list</span><span class="p">[</span><span class="n">norm_name</span><span class="p">]</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">value</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="bp">self</span><span class="p">[</span><span class="n">norm_name</span><span class="p">]</span> <span class="o">=</span> <span class="n">value</span>
+</div>
+<div class="viewcode-block" id="HTTPHeaders.get_list"><a class="viewcode-back" href="../../httputil.html#cyclone.httputil.HTTPHeaders.get_list">[docs]</a>    <span class="k">def</span> <span class="nf">get_list</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">name</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Returns all values for the given header as a list.&quot;&quot;&quot;</span>
+        <span class="n">norm_name</span> <span class="o">=</span> <span class="n">HTTPHeaders</span><span class="o">.</span><span class="n">_normalize_name</span><span class="p">(</span><span class="n">name</span><span class="p">)</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_as_list</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">norm_name</span><span class="p">,</span> <span class="p">[])</span>
+</div>
+<div class="viewcode-block" id="HTTPHeaders.get_all"><a class="viewcode-back" href="../../httputil.html#cyclone.httputil.HTTPHeaders.get_all">[docs]</a>    <span class="k">def</span> <span class="nf">get_all</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Returns an iterable of all (name, value) pairs.</span>
+
+<span class="sd">        If a header has multiple values, multiple pairs will be</span>
+<span class="sd">        returned with the same name.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">for</span> <span class="n">name</span><span class="p">,</span> <span class="nb">list</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">_as_list</span><span class="o">.</span><span class="n">items</span><span class="p">():</span>
+            <span class="k">for</span> <span class="n">value</span> <span class="ow">in</span> <span class="nb">list</span><span class="p">:</span>
+                <span class="k">yield</span> <span class="p">(</span><span class="n">name</span><span class="p">,</span> <span class="n">value</span><span class="p">)</span>
+</div>
+<div class="viewcode-block" id="HTTPHeaders.parse_line"><a class="viewcode-back" href="../../httputil.html#cyclone.httputil.HTTPHeaders.parse_line">[docs]</a>    <span class="k">def</span> <span class="nf">parse_line</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">line</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Updates the dictionary with a single header line.</span>
+
+<span class="sd">        &gt;&gt;&gt; h = HTTPHeaders()</span>
+<span class="sd">        &gt;&gt;&gt; h.parse_line(&quot;Content-Type: text/html&quot;)</span>
+<span class="sd">        &gt;&gt;&gt; h.get(&#39;content-type&#39;)</span>
+<span class="sd">        &#39;text/html&#39;</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="n">line</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">isspace</span><span class="p">():</span>
+            <span class="c"># continuation of a multi-line header</span>
+            <span class="n">new_part</span> <span class="o">=</span> <span class="s">&#39; &#39;</span> <span class="o">+</span> <span class="n">line</span><span class="o">.</span><span class="n">lstrip</span><span class="p">()</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_as_list</span><span class="p">[</span><span class="bp">self</span><span class="o">.</span><span class="n">_last_key</span><span class="p">][</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span> <span class="o">+=</span> <span class="n">new_part</span>
+            <span class="nb">dict</span><span class="o">.</span><span class="n">__setitem__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">_last_key</span><span class="p">,</span>
+                             <span class="bp">self</span><span class="p">[</span><span class="bp">self</span><span class="o">.</span><span class="n">_last_key</span><span class="p">]</span> <span class="o">+</span> <span class="n">new_part</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">name</span><span class="p">,</span> <span class="n">value</span> <span class="o">=</span> <span class="n">line</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s">&quot;:&quot;</span><span class="p">,</span> <span class="mi">1</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">add</span><span class="p">(</span><span class="n">name</span><span class="p">,</span> <span class="n">value</span><span class="o">.</span><span class="n">strip</span><span class="p">())</span>
+</div>
+    <span class="nd">@classmethod</span>
+<div class="viewcode-block" id="HTTPHeaders.parse"><a class="viewcode-back" href="../../httputil.html#cyclone.httputil.HTTPHeaders.parse">[docs]</a>    <span class="k">def</span> <span class="nf">parse</span><span class="p">(</span><span class="n">cls</span><span class="p">,</span> <span class="n">headers</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Returns a dictionary from HTTP header text.</span>
+
+<span class="sd">        &gt;&gt;&gt; h = HTTPHeaders.parse(</span>
+<span class="sd">            &quot;Content-Type: text/html\\r\\nContent-Length: 42\\r\\n&quot;)</span>
+<span class="sd">        &gt;&gt;&gt; sorted(h.items())</span>
+<span class="sd">        [(&#39;Content-Length&#39;, &#39;42&#39;), (&#39;Content-Type&#39;, &#39;text/html&#39;)]</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">h</span> <span class="o">=</span> <span class="n">cls</span><span class="p">()</span>
+        <span class="k">for</span> <span class="n">line</span> <span class="ow">in</span> <span class="n">headers</span><span class="o">.</span><span class="n">splitlines</span><span class="p">():</span>
+            <span class="k">if</span> <span class="n">line</span><span class="p">:</span>
+                <span class="n">h</span><span class="o">.</span><span class="n">parse_line</span><span class="p">(</span><span class="n">line</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">h</span>
+
+    <span class="c"># dict implementation overrides</span>
+</div>
+    <span class="k">def</span> <span class="nf">__setitem__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">name</span><span class="p">,</span> <span class="n">value</span><span class="p">):</span>
+        <span class="n">norm_name</span> <span class="o">=</span> <span class="n">HTTPHeaders</span><span class="o">.</span><span class="n">_normalize_name</span><span class="p">(</span><span class="n">name</span><span class="p">)</span>
+        <span class="nb">dict</span><span class="o">.</span><span class="n">__setitem__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">norm_name</span><span class="p">,</span> <span class="n">value</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_as_list</span><span class="p">[</span><span class="n">norm_name</span><span class="p">]</span> <span class="o">=</span> <span class="p">[</span><span class="n">value</span><span class="p">]</span>
+
+    <span class="k">def</span> <span class="nf">__getitem__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">name</span><span class="p">):</span>
+        <span class="k">return</span> <span class="nb">dict</span><span class="o">.</span><span class="n">__getitem__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">HTTPHeaders</span><span class="o">.</span><span class="n">_normalize_name</span><span class="p">(</span><span class="n">name</span><span class="p">))</span>
+
+    <span class="k">def</span> <span class="nf">__delitem__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">name</span><span class="p">):</span>
+        <span class="n">norm_name</span> <span class="o">=</span> <span class="n">HTTPHeaders</span><span class="o">.</span><span class="n">_normalize_name</span><span class="p">(</span><span class="n">name</span><span class="p">)</span>
+        <span class="nb">dict</span><span class="o">.</span><span class="n">__delitem__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">norm_name</span><span class="p">)</span>
+        <span class="k">del</span> <span class="bp">self</span><span class="o">.</span><span class="n">_as_list</span><span class="p">[</span><span class="n">norm_name</span><span class="p">]</span>
+
+    <span class="k">def</span> <span class="nf">__contains__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">name</span><span class="p">):</span>
+        <span class="n">norm_name</span> <span class="o">=</span> <span class="n">HTTPHeaders</span><span class="o">.</span><span class="n">_normalize_name</span><span class="p">(</span><span class="n">name</span><span class="p">)</span>
+        <span class="k">return</span> <span class="nb">dict</span><span class="o">.</span><span class="n">__contains__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">norm_name</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">get</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">name</span><span class="p">,</span> <span class="n">default</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+        <span class="k">return</span> <span class="nb">dict</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">HTTPHeaders</span><span class="o">.</span><span class="n">_normalize_name</span><span class="p">(</span><span class="n">name</span><span class="p">),</span> <span class="n">default</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">update</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">):</span>
+        <span class="c"># dict.update bypasses our __setitem__</span>
+        <span class="k">for</span> <span class="n">k</span><span class="p">,</span> <span class="n">v</span> <span class="ow">in</span> <span class="nb">dict</span><span class="p">(</span><span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">)</span><span class="o">.</span><span class="n">items</span><span class="p">():</span>
+            <span class="bp">self</span><span class="p">[</span><span class="n">k</span><span class="p">]</span> <span class="o">=</span> <span class="n">v</span>
+
+    <span class="k">def</span> <span class="nf">copy</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="c"># default implementation returns dict(self), not the subclass</span>
+        <span class="k">return</span> <span class="n">HTTPHeaders</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span>
+
+    <span class="n">_NORMALIZED_HEADER_RE</span> <span class="o">=</span> \
+        <span class="n">re</span><span class="o">.</span><span class="n">compile</span><span class="p">(</span><span class="s">r&#39;^[A-Z0-9][a-z0-9]*(-[A-Z0-9][a-z0-9]*)*$&#39;</span><span class="p">)</span>
+    <span class="n">_normalized_headers</span> <span class="o">=</span> <span class="p">{}</span>
+
+    <span class="nd">@staticmethod</span>
+    <span class="k">def</span> <span class="nf">_normalize_name</span><span class="p">(</span><span class="n">name</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Converts a name to Http-Header-Case.</span>
+
+<span class="sd">        &gt;&gt;&gt; HTTPHeaders._normalize_name(&quot;coNtent-TYPE&quot;)</span>
+<span class="sd">        &#39;Content-Type&#39;</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="k">return</span> <span class="n">HTTPHeaders</span><span class="o">.</span><span class="n">_normalized_headers</span><span class="p">[</span><span class="n">name</span><span class="p">]</span>
+        <span class="k">except</span> <span class="ne">KeyError</span><span class="p">:</span>
+            <span class="k">if</span> <span class="n">HTTPHeaders</span><span class="o">.</span><span class="n">_NORMALIZED_HEADER_RE</span><span class="o">.</span><span class="n">match</span><span class="p">(</span><span class="n">name</span><span class="p">):</span>
+                <span class="n">normalized</span> <span class="o">=</span> <span class="n">name</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="n">normalized</span> <span class="o">=</span> <span class="s">&quot;-&quot;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span>
+                    <span class="p">[</span><span class="n">w</span><span class="o">.</span><span class="n">capitalize</span><span class="p">()</span> <span class="k">for</span> <span class="n">w</span> <span class="ow">in</span> <span class="n">name</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s">&quot;-&quot;</span><span class="p">)])</span>
+            <span class="n">HTTPHeaders</span><span class="o">.</span><span class="n">_normalized_headers</span><span class="p">[</span><span class="n">name</span><span class="p">]</span> <span class="o">=</span> <span class="n">normalized</span>
+            <span class="k">return</span> <span class="n">normalized</span>
+
+</div>
+<div class="viewcode-block" id="url_concat"><a class="viewcode-back" href="../../httputil.html#cyclone.httputil.url_concat">[docs]</a><span class="k">def</span> <span class="nf">url_concat</span><span class="p">(</span><span class="n">url</span><span class="p">,</span> <span class="n">args</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;Concatenate url and argument dictionary regardless of whether</span>
+<span class="sd">    url has existing query parameters.</span>
+
+<span class="sd">    &gt;&gt;&gt; url_concat(&quot;http://example.com/foo?a=b&quot;, dict(c=&quot;d&quot;))</span>
+<span class="sd">    &#39;http://example.com/foo?a=b&amp;c=d&#39;</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">args</span><span class="p">:</span>
+        <span class="k">return</span> <span class="n">url</span>
+    <span class="k">if</span> <span class="n">url</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span> <span class="ow">not</span> <span class="ow">in</span> <span class="p">(</span><span class="s">&#39;?&#39;</span><span class="p">,</span> <span class="s">&#39;&amp;&#39;</span><span class="p">):</span>
+        <span class="n">url</span> <span class="o">+=</span> <span class="s">&#39;&amp;&#39;</span> <span class="k">if</span> <span class="p">(</span><span class="s">&#39;?&#39;</span> <span class="ow">in</span> <span class="n">url</span><span class="p">)</span> <span class="k">else</span> <span class="s">&#39;?&#39;</span>
+    <span class="k">return</span> <span class="n">url</span> <span class="o">+</span> <span class="n">urlencode</span><span class="p">(</span><span class="n">args</span><span class="p">)</span>
+
+</div>
+<div class="viewcode-block" id="HTTPFile"><a class="viewcode-back" href="../../httputil.html#cyclone.httputil.HTTPFile">[docs]</a><span class="k">class</span> <span class="nc">HTTPFile</span><span class="p">(</span><span class="n">ObjectDict</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;Represents an HTTP file. For backwards compatibility, its instance</span>
+<span class="sd">    attributes are also accessible as dictionary keys.</span>
+
+<span class="sd">    :ivar filename:</span>
+<span class="sd">    :ivar body:</span>
+<span class="sd">    :ivar content_type: The content_type comes from the provided HTTP header</span>
+<span class="sd">        and should not be trusted outright given that it can be easily forged.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">pass</span>
+
+</div>
+<div class="viewcode-block" id="parse_body_arguments"><a class="viewcode-back" href="../../httputil.html#cyclone.httputil.parse_body_arguments">[docs]</a><span class="k">def</span> <span class="nf">parse_body_arguments</span><span class="p">(</span><span class="n">content_type</span><span class="p">,</span> <span class="n">body</span><span class="p">,</span> <span class="n">arguments</span><span class="p">,</span> <span class="n">files</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;Parses a form request body.</span>
+
+<span class="sd">    Supports &quot;application/x-www-form-urlencoded&quot; and &quot;multipart/form-data&quot;.</span>
+<span class="sd">    The content_type parameter should be a string and body should be</span>
+<span class="sd">    a byte string.  The arguments and files parameters are dictionaries</span>
+<span class="sd">    that will be updated with the parsed contents.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">if</span> <span class="n">content_type</span><span class="o">.</span><span class="n">startswith</span><span class="p">(</span><span class="s">&quot;application/x-www-form-urlencoded&quot;</span><span class="p">):</span>
+        <span class="n">uri_arguments</span> <span class="o">=</span> <span class="n">parse_qs_bytes</span><span class="p">(</span><span class="n">native_str</span><span class="p">(</span><span class="n">body</span><span class="p">))</span>
+        <span class="k">for</span> <span class="n">name</span><span class="p">,</span> <span class="n">values</span> <span class="ow">in</span> <span class="n">uri_arguments</span><span class="o">.</span><span class="n">items</span><span class="p">():</span>
+            <span class="n">values</span> <span class="o">=</span> <span class="p">[</span><span class="n">v</span> <span class="k">for</span> <span class="n">v</span> <span class="ow">in</span> <span class="n">values</span> <span class="k">if</span> <span class="n">v</span><span class="p">]</span>
+            <span class="k">if</span> <span class="n">values</span><span class="p">:</span>
+                <span class="n">arguments</span><span class="o">.</span><span class="n">setdefault</span><span class="p">(</span><span class="n">name</span><span class="p">,</span> <span class="p">[])</span><span class="o">.</span><span class="n">extend</span><span class="p">(</span><span class="n">values</span><span class="p">)</span>
+    <span class="k">elif</span> <span class="n">content_type</span><span class="o">.</span><span class="n">startswith</span><span class="p">(</span><span class="s">&quot;multipart/form-data&quot;</span><span class="p">):</span>
+        <span class="n">fields</span> <span class="o">=</span> <span class="n">content_type</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s">&quot;;&quot;</span><span class="p">)</span>
+        <span class="k">for</span> <span class="n">field</span> <span class="ow">in</span> <span class="n">fields</span><span class="p">:</span>
+            <span class="n">k</span><span class="p">,</span> <span class="n">sep</span><span class="p">,</span> <span class="n">v</span> <span class="o">=</span> <span class="n">field</span><span class="o">.</span><span class="n">strip</span><span class="p">()</span><span class="o">.</span><span class="n">partition</span><span class="p">(</span><span class="s">&quot;=&quot;</span><span class="p">)</span>
+            <span class="k">if</span> <span class="n">k</span> <span class="o">==</span> <span class="s">&quot;boundary&quot;</span> <span class="ow">and</span> <span class="n">v</span><span class="p">:</span>
+                <span class="n">parse_multipart_form_data</span><span class="p">(</span><span class="n">utf8</span><span class="p">(</span><span class="n">v</span><span class="p">),</span> <span class="n">body</span><span class="p">,</span> <span class="n">arguments</span><span class="p">,</span> <span class="n">files</span><span class="p">)</span>
+                <span class="k">break</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">log</span><span class="o">.</span><span class="n">msg</span><span class="p">(</span><span class="s">&quot;Invalid multipart/form-data&quot;</span><span class="p">)</span>
+
+</div>
+<div class="viewcode-block" id="parse_multipart_form_data"><a class="viewcode-back" href="../../httputil.html#cyclone.httputil.parse_multipart_form_data">[docs]</a><span class="k">def</span> <span class="nf">parse_multipart_form_data</span><span class="p">(</span><span class="n">boundary</span><span class="p">,</span> <span class="n">data</span><span class="p">,</span> <span class="n">arguments</span><span class="p">,</span> <span class="n">files</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;Parses a multipart/form-data body.</span>
+
+<span class="sd">    The boundary and data parameters are both byte strings.</span>
+<span class="sd">    The dictionaries given in the arguments and files parameters</span>
+<span class="sd">    will be updated with the contents of the body.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="c"># The standard allows for the boundary to be quoted in the header,</span>
+    <span class="c"># although it&#39;s rare (it happens at least for google app engine</span>
+    <span class="c"># xmpp).  I think we&#39;re also supposed to handle backslash-escapes</span>
+    <span class="c"># here but I&#39;ll save that until we see a client that uses them</span>
+    <span class="c"># in the wild.</span>
+    <span class="k">if</span> <span class="n">boundary</span><span class="o">.</span><span class="n">startswith</span><span class="p">(</span><span class="s">&#39;&quot;&#39;</span><span class="p">)</span> <span class="ow">and</span> <span class="n">boundary</span><span class="o">.</span><span class="n">endswith</span><span class="p">(</span><span class="s">&#39;&quot;&#39;</span><span class="p">):</span>
+        <span class="n">boundary</span> <span class="o">=</span> <span class="n">boundary</span><span class="p">[</span><span class="mi">1</span><span class="p">:</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span>
+    <span class="n">final_boundary_index</span> <span class="o">=</span> <span class="n">data</span><span class="o">.</span><span class="n">rfind</span><span class="p">(</span><span class="s">&quot;--&quot;</span> <span class="o">+</span> <span class="n">boundary</span> <span class="o">+</span> <span class="s">&quot;--&quot;</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">final_boundary_index</span> <span class="o">==</span> <span class="o">-</span><span class="mi">1</span><span class="p">:</span>
+        <span class="n">log</span><span class="o">.</span><span class="n">msg</span><span class="p">(</span><span class="s">&quot;Invalid multipart/form-data: no final boundary&quot;</span><span class="p">)</span>
+        <span class="k">return</span>
+    <span class="n">parts</span> <span class="o">=</span> <span class="n">data</span><span class="p">[:</span><span class="n">final_boundary_index</span><span class="p">]</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s">&quot;--&quot;</span> <span class="o">+</span> <span class="n">boundary</span> <span class="o">+</span> <span class="s">&quot;</span><span class="se">\r\n</span><span class="s">&quot;</span><span class="p">)</span>
+    <span class="k">for</span> <span class="n">part</span> <span class="ow">in</span> <span class="n">parts</span><span class="p">:</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">part</span><span class="p">:</span>
+            <span class="k">continue</span>
+        <span class="n">eoh</span> <span class="o">=</span> <span class="n">part</span><span class="o">.</span><span class="n">find</span><span class="p">(</span><span class="s">&quot;</span><span class="se">\r\n\r\n</span><span class="s">&quot;</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">eoh</span> <span class="o">==</span> <span class="o">-</span><span class="mi">1</span><span class="p">:</span>
+            <span class="n">log</span><span class="o">.</span><span class="n">msg</span><span class="p">(</span><span class="s">&quot;multipart/form-data missing headers&quot;</span><span class="p">)</span>
+            <span class="k">continue</span>
+        <span class="n">headers</span> <span class="o">=</span> <span class="n">HTTPHeaders</span><span class="o">.</span><span class="n">parse</span><span class="p">(</span><span class="n">part</span><span class="p">[:</span><span class="n">eoh</span><span class="p">]</span><span class="o">.</span><span class="n">decode</span><span class="p">(</span><span class="s">&quot;utf-8&quot;</span><span class="p">))</span>
+        <span class="n">disp_header</span> <span class="o">=</span> <span class="n">headers</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s">&quot;Content-Disposition&quot;</span><span class="p">,</span> <span class="s">&quot;&quot;</span><span class="p">)</span>
+        <span class="n">disposition</span><span class="p">,</span> <span class="n">disp_params</span> <span class="o">=</span> <span class="n">_parse_header</span><span class="p">(</span><span class="n">disp_header</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">disposition</span> <span class="o">!=</span> <span class="s">&quot;form-data&quot;</span> <span class="ow">or</span> <span class="ow">not</span> <span class="n">part</span><span class="o">.</span><span class="n">endswith</span><span class="p">(</span><span class="s">&quot;</span><span class="se">\r\n</span><span class="s">&quot;</span><span class="p">):</span>
+            <span class="n">log</span><span class="o">.</span><span class="n">msg</span><span class="p">(</span><span class="s">&quot;Invalid multipart/form-data&quot;</span><span class="p">)</span>
+            <span class="k">continue</span>
+        <span class="n">value</span> <span class="o">=</span> <span class="n">part</span><span class="p">[</span><span class="n">eoh</span> <span class="o">+</span> <span class="mi">4</span><span class="p">:</span><span class="o">-</span><span class="mi">2</span><span class="p">]</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">disp_params</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s">&quot;name&quot;</span><span class="p">):</span>
+            <span class="n">log</span><span class="o">.</span><span class="n">msg</span><span class="p">(</span><span class="s">&quot;multipart/form-data value missing name&quot;</span><span class="p">)</span>
+            <span class="k">continue</span>
+        <span class="n">name</span> <span class="o">=</span> <span class="n">disp_params</span><span class="p">[</span><span class="s">&quot;name&quot;</span><span class="p">]</span>
+        <span class="k">if</span> <span class="n">disp_params</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s">&quot;filename&quot;</span><span class="p">):</span>
+            <span class="n">ctype</span> <span class="o">=</span> <span class="n">headers</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s">&quot;Content-Type&quot;</span><span class="p">,</span> <span class="s">&quot;application/unknown&quot;</span><span class="p">)</span>
+            <span class="n">files</span><span class="o">.</span><span class="n">setdefault</span><span class="p">(</span><span class="n">name</span><span class="p">,</span> <span class="p">[])</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">HTTPFile</span><span class="p">(</span>
+                <span class="n">filename</span><span class="o">=</span><span class="n">disp_params</span><span class="p">[</span><span class="s">&quot;filename&quot;</span><span class="p">],</span> <span class="n">body</span><span class="o">=</span><span class="n">value</span><span class="p">,</span>
+                <span class="n">content_type</span><span class="o">=</span><span class="n">ctype</span><span class="p">))</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">arguments</span><span class="o">.</span><span class="n">setdefault</span><span class="p">(</span><span class="n">name</span><span class="p">,</span> <span class="p">[])</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">value</span><span class="p">)</span>
+
+
+<span class="c"># _parseparam and _parse_header are copied and modified from python2.7&#39;s cgi.py</span>
+<span class="c"># The original 2.7 version of this code did not correctly support some</span>
+<span class="c"># combinations of semicolons and double quotes.</span></div>
+<span class="k">def</span> <span class="nf">_parseparam</span><span class="p">(</span><span class="n">s</span><span class="p">):</span>
+    <span class="k">while</span> <span class="n">s</span><span class="p">[:</span><span class="mi">1</span><span class="p">]</span> <span class="o">==</span> <span class="s">&#39;;&#39;</span><span class="p">:</span>
+        <span class="n">s</span> <span class="o">=</span> <span class="n">s</span><span class="p">[</span><span class="mi">1</span><span class="p">:]</span>
+        <span class="n">end</span> <span class="o">=</span> <span class="n">s</span><span class="o">.</span><span class="n">find</span><span class="p">(</span><span class="s">&#39;;&#39;</span><span class="p">)</span>
+        <span class="k">while</span> <span class="n">end</span> <span class="o">&gt;</span> <span class="mi">0</span> <span class="ow">and</span> <span class="p">(</span><span class="n">s</span><span class="o">.</span><span class="n">count</span><span class="p">(</span><span class="s">&#39;&quot;&#39;</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="n">end</span><span class="p">)</span> <span class="o">-</span> <span class="n">s</span><span class="o">.</span><span class="n">count</span><span class="p">(</span><span class="s">&#39;</span><span class="se">\\</span><span class="s">&quot;&#39;</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="n">end</span><span class="p">))</span> <span class="o">%</span> <span class="mi">2</span><span class="p">:</span>
+            <span class="n">end</span> <span class="o">=</span> <span class="n">s</span><span class="o">.</span><span class="n">find</span><span class="p">(</span><span class="s">&#39;;&#39;</span><span class="p">,</span> <span class="n">end</span> <span class="o">+</span> <span class="mi">1</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">end</span> <span class="o">&lt;</span> <span class="mi">0</span><span class="p">:</span>
+            <span class="n">end</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">s</span><span class="p">)</span>
+        <span class="n">f</span> <span class="o">=</span> <span class="n">s</span><span class="p">[:</span><span class="n">end</span><span class="p">]</span>
+        <span class="k">yield</span> <span class="n">f</span><span class="o">.</span><span class="n">strip</span><span class="p">()</span>
+        <span class="n">s</span> <span class="o">=</span> <span class="n">s</span><span class="p">[</span><span class="n">end</span><span class="p">:]</span>
+
+
+<span class="k">def</span> <span class="nf">_parse_header</span><span class="p">(</span><span class="n">line</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;Parse a Content-type like header.</span>
+
+<span class="sd">    Return the main content-type and a dictionary of options.</span>
+
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">parts</span> <span class="o">=</span> <span class="n">_parseparam</span><span class="p">(</span><span class="s">&#39;;&#39;</span> <span class="o">+</span> <span class="n">line</span><span class="p">)</span>
+    <span class="n">key</span> <span class="o">=</span> <span class="nb">next</span><span class="p">(</span><span class="n">parts</span><span class="p">)</span>
+    <span class="n">pdict</span> <span class="o">=</span> <span class="p">{}</span>
+    <span class="k">for</span> <span class="n">p</span> <span class="ow">in</span> <span class="n">parts</span><span class="p">:</span>
+        <span class="n">i</span> <span class="o">=</span> <span class="n">p</span><span class="o">.</span><span class="n">find</span><span class="p">(</span><span class="s">&#39;=&#39;</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">i</span> <span class="o">&gt;=</span> <span class="mi">0</span><span class="p">:</span>
+            <span class="n">name</span> <span class="o">=</span> <span class="n">p</span><span class="p">[:</span><span class="n">i</span><span class="p">]</span><span class="o">.</span><span class="n">strip</span><span class="p">()</span><span class="o">.</span><span class="n">lower</span><span class="p">()</span>
+            <span class="n">value</span> <span class="o">=</span> <span class="n">p</span><span class="p">[</span><span class="n">i</span> <span class="o">+</span> <span class="mi">1</span><span class="p">:]</span><span class="o">.</span><span class="n">strip</span><span class="p">()</span>
+            <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">value</span><span class="p">)</span> <span class="o">&gt;=</span> <span class="mi">2</span> <span class="ow">and</span> <span class="n">value</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">==</span> <span class="n">value</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span> <span class="o">==</span> <span class="s">&#39;&quot;&#39;</span><span class="p">:</span>
+                <span class="n">value</span> <span class="o">=</span> <span class="n">value</span><span class="p">[</span><span class="mi">1</span><span class="p">:</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span>
+                <span class="n">value</span> <span class="o">=</span> <span class="n">value</span><span class="o">.</span><span class="n">replace</span><span class="p">(</span><span class="s">&#39;</span><span class="se">\\\\</span><span class="s">&#39;</span><span class="p">,</span> <span class="s">&#39;</span><span class="se">\\</span><span class="s">&#39;</span><span class="p">)</span><span class="o">.</span><span class="n">replace</span><span class="p">(</span><span class="s">&#39;</span><span class="se">\\</span><span class="s">&quot;&#39;</span><span class="p">,</span> <span class="s">&#39;&quot;&#39;</span><span class="p">)</span>
+            <span class="n">pdict</span><span class="p">[</span><span class="n">name</span><span class="p">]</span> <span class="o">=</span> <span class="n">value</span>
+    <span class="k">return</span> <span class="n">key</span><span class="p">,</span> <span class="n">pdict</span>
+
+
+<span class="k">def</span> <span class="nf">doctests</span><span class="p">():</span>
+    <span class="kn">import</span> <span class="nn">doctest</span>
+    <span class="k">return</span> <span class="n">doctest</span><span class="o">.</span><span class="n">DocTestSuite</span><span class="p">()</span>
+</pre></div>
+
+          </div>
+        </div>
+      </div>
+      <div class="sphinxsidebar">
+        <div class="sphinxsidebarwrapper">
+<div id="searchbox" style="display: none">
+  <h3>Quick search</h3>
+    <form class="search" action="../../search.html" method="get">
+      <input type="text" name="q" />
+      <input type="submit" value="Go" />
+      <input type="hidden" name="check_keywords" value="yes" />
+      <input type="hidden" name="area" value="default" />
+    </form>
+    <p class="searchtip" style="font-size: 90%">
+    Enter search terms or a module, class or function name.
+    </p>
+</div>
+<script type="text/javascript">$('#searchbox').show(0);</script>
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="related">
+      <h3>Navigation</h3>
+      <ul>
+        <li class="right" style="margin-right: 10px">
+          <a href="../../genindex.html" title="General Index"
+             >index</a></li>
+        <li class="right" >
+          <a href="../../py-modindex.html" title="Python Module Index"
+             >modules</a> |</li>
+        <li><a href="../../index.html">cyclone git-2013042301 documentation</a> &raquo;</li>
+          <li><a href="../index.html" >Module code</a> &raquo;</li> 
+      </ul>
+    </div>
+    <div class="footer">
+        &copy; Copyright 2013, Alexandre Fiori.
+      Created using <a href="http://sphinx.pocoo.org/">Sphinx</a> 1.1.3.
+    </div>
+  </body>
+</html>

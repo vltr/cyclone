@@ -1,0 +1,611 @@
+
+
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"
+  "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+
+
+<html xmlns="http://www.w3.org/1999/xhtml">
+  <head>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+    
+    <title>cyclone.locale &mdash; cyclone git-2013042301 documentation</title>
+    
+    <link rel="stylesheet" href="../../_static/sphinx.css" type="text/css" />
+    <link rel="stylesheet" href="../../_static/pygments.css" type="text/css" />
+    
+    <script type="text/javascript">
+      var DOCUMENTATION_OPTIONS = {
+        URL_ROOT:    '../../',
+        VERSION:     'git-2013042301',
+        COLLAPSE_INDEX: false,
+        FILE_SUFFIX: '.html',
+        HAS_SOURCE:  true
+      };
+    </script>
+    <script type="text/javascript" src="../../_static/jquery.js"></script>
+    <script type="text/javascript" src="../../_static/underscore.js"></script>
+    <script type="text/javascript" src="../../_static/doctools.js"></script>
+    <link rel="top" title="cyclone git-2013042301 documentation" href="../../index.html" />
+    <link rel="up" title="Module code" href="../index.html" /> 
+  </head>
+  <body>
+    <div class="related">
+      <h3>Navigation</h3>
+      <ul>
+        <li class="right" style="margin-right: 10px">
+          <a href="../../genindex.html" title="General Index"
+             accesskey="I">index</a></li>
+        <li class="right" >
+          <a href="../../py-modindex.html" title="Python Module Index"
+             >modules</a> |</li>
+        <li><a href="../../index.html">cyclone git-2013042301 documentation</a> &raquo;</li>
+          <li><a href="../index.html" accesskey="U">Module code</a> &raquo;</li> 
+      </ul>
+    </div>  
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          <div class="body">
+            
+  <h1>Source code for cyclone.locale</h1><div class="highlight"><pre>
+<span class="c"># coding: utf-8</span>
+<span class="c">#</span>
+<span class="c"># Copyright 2010 Alexandre Fiori</span>
+<span class="c"># based on the original Tornado by Facebook</span>
+<span class="c">#</span>
+<span class="c"># Licensed under the Apache License, Version 2.0 (the &quot;License&quot;); you may</span>
+<span class="c"># not use this file except in compliance with the License. You may obtain</span>
+<span class="c"># a copy of the License at</span>
+<span class="c">#</span>
+<span class="c">#     http://www.apache.org/licenses/LICENSE-2.0</span>
+<span class="c">#</span>
+<span class="c"># Unless required by applicable law or agreed to in writing, software</span>
+<span class="c"># distributed under the License is distributed on an &quot;AS IS&quot; BASIS, WITHOUT</span>
+<span class="c"># WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the</span>
+<span class="c"># License for the specific language governing permissions and limitations</span>
+<span class="c"># under the License.</span>
+
+<span class="sd">&quot;&quot;&quot;Translation methods for generating localized strings.</span>
+
+<span class="sd">To load a locale and generate a translated string::</span>
+
+<span class="sd">    user_locale = locale.get(&quot;es_LA&quot;)</span>
+<span class="sd">    print user_locale.translate(&quot;Sign out&quot;)</span>
+
+<span class="sd">locale.get() returns the closest matching locale, not necessarily the</span>
+<span class="sd">specific locale you requested. You can support pluralization with</span>
+<span class="sd">additional arguments to translate(), e.g.::</span>
+
+<span class="sd">    people = [...]</span>
+<span class="sd">    message = user_locale.translate(</span>
+<span class="sd">        &quot;%(list)s is online&quot;, &quot;%(list)s are online&quot;, len(people))</span>
+<span class="sd">    print message % {&quot;list&quot;: user_locale.list(people)}</span>
+
+<span class="sd">The first string is chosen if len(people) == 1, otherwise the second</span>
+<span class="sd">string is chosen.</span>
+
+<span class="sd">Applications should call one of load_translations (which uses a simple</span>
+<span class="sd">CSV format) or load_gettext_translations (which uses the .mo format</span>
+<span class="sd">supported by gettext and related tools).  If neither method is called,</span>
+<span class="sd">the locale.translate method will simply return the original string.</span>
+<span class="sd">&quot;&quot;&quot;</span>
+
+<span class="kn">from</span> <span class="nn">__future__</span> <span class="kn">import</span> <span class="n">absolute_import</span><span class="p">,</span> <span class="n">division</span><span class="p">,</span> <span class="n">with_statement</span>
+
+<span class="kn">import</span> <span class="nn">csv</span>
+<span class="kn">import</span> <span class="nn">datetime</span>
+<span class="kn">import</span> <span class="nn">os</span>
+<span class="kn">import</span> <span class="nn">re</span>
+
+<span class="kn">from</span> <span class="nn">twisted.python</span> <span class="kn">import</span> <span class="n">log</span>
+<span class="kn">from</span> <span class="nn">twisted.internet</span> <span class="kn">import</span> <span class="n">reactor</span>
+
+<span class="n">_default_locale</span> <span class="o">=</span> <span class="s">&quot;en_US&quot;</span>
+<span class="n">_translations</span> <span class="o">=</span> <span class="p">{}</span>
+<span class="n">_supported_locales</span> <span class="o">=</span> <span class="nb">frozenset</span><span class="p">([</span><span class="n">_default_locale</span><span class="p">])</span>
+<span class="n">_use_gettext</span> <span class="o">=</span> <span class="bp">False</span>
+
+
+<div class="viewcode-block" id="get"><a class="viewcode-back" href="../../locale.html#cyclone.locale.get">[docs]</a><span class="k">def</span> <span class="nf">get</span><span class="p">(</span><span class="o">*</span><span class="n">locale_codes</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;Returns the closest match for the given locale codes.</span>
+
+<span class="sd">    We iterate over all given locale codes in order. If we have a tight</span>
+<span class="sd">    or a loose match for the code (e.g., &quot;en&quot; for &quot;en_US&quot;), we return</span>
+<span class="sd">    the locale. Otherwise we move to the next code in the list.</span>
+
+<span class="sd">    By default we return en_US if no translations are found for any of</span>
+<span class="sd">    the specified locales. You can change the default locale with</span>
+<span class="sd">    set_default_locale() below.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">return</span> <span class="n">Locale</span><span class="o">.</span><span class="n">get_closest</span><span class="p">(</span><span class="o">*</span><span class="n">locale_codes</span><span class="p">)</span>
+
+</div>
+<div class="viewcode-block" id="set_default_locale"><a class="viewcode-back" href="../../locale.html#cyclone.locale.set_default_locale">[docs]</a><span class="k">def</span> <span class="nf">set_default_locale</span><span class="p">(</span><span class="n">code</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;Sets the default locale, used in get_closest_locale().</span>
+
+<span class="sd">    The default locale is assumed to be the language used for all strings</span>
+<span class="sd">    in the system. The translations loaded from disk are mappings from</span>
+<span class="sd">    the default locale to the destination locale. Consequently, you don&#39;t</span>
+<span class="sd">    need to create a translation file for the default locale.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">global</span> <span class="n">_default_locale</span>
+    <span class="k">global</span> <span class="n">_supported_locales</span>
+    <span class="n">_default_locale</span> <span class="o">=</span> <span class="n">code</span>
+    <span class="n">_supported_locales</span> <span class="o">=</span> <span class="nb">frozenset</span><span class="p">(</span><span class="nb">list</span><span class="p">(</span><span class="n">_translations</span><span class="o">.</span><span class="n">keys</span><span class="p">())</span> <span class="o">+</span>
+                                    <span class="p">[</span><span class="n">_default_locale</span><span class="p">])</span>
+
+</div>
+<div class="viewcode-block" id="load_translations"><a class="viewcode-back" href="../../locale.html#cyclone.locale.load_translations">[docs]</a><span class="k">def</span> <span class="nf">load_translations</span><span class="p">(</span><span class="n">directory</span><span class="p">):</span>
+    <span class="sd">u&quot;&quot;&quot;Loads translations from CSV files in a directory.</span>
+
+<span class="sd">    Translations are strings with optional Python-style named placeholders</span>
+<span class="sd">    (e.g., &quot;My name is %(name)s&quot;) and their associated translations.</span>
+
+<span class="sd">    The directory should have translation files of the form LOCALE.csv,</span>
+<span class="sd">    e.g. es_GT.csv. The CSV files should have two or three columns: string,</span>
+<span class="sd">    translation, and an optional plural indicator. Plural indicators should</span>
+<span class="sd">    be one of &quot;plural&quot; or &quot;singular&quot;. A given string can have both singular</span>
+<span class="sd">    and plural forms. For example &quot;%(name)s liked this&quot; may have a</span>
+<span class="sd">    different verb conjugation depending on whether %(name)s is one</span>
+<span class="sd">    name or a list of names. There should be two rows in the CSV file for</span>
+<span class="sd">    that string, one with plural indicator &quot;singular&quot;, and one &quot;plural&quot;.</span>
+<span class="sd">    For strings with no verbs that would change on translation, simply</span>
+<span class="sd">    use &quot;unknown&quot; or the empty string (or don&#39;t include the column at all).</span>
+
+<span class="sd">    The file is read using the csv module in the default &quot;excel&quot; dialect.</span>
+<span class="sd">    In this format there should not be spaces after the commas.</span>
+
+<span class="sd">    Example translation es_LA.csv:</span>
+
+<span class="sd">        &quot;I love you&quot;,&quot;Te amo&quot;</span>
+<span class="sd">        &quot;%(name)s liked this&quot;,&quot;A %(name)s les gust\u00f3 esto&quot;,&quot;plural&quot;</span>
+<span class="sd">        &quot;%(name)s liked this&quot;,&quot;A %(name)s le gust\u00f3 esto&quot;,&quot;singular&quot;</span>
+
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">global</span> <span class="n">_translations</span>
+    <span class="k">global</span> <span class="n">_supported_locales</span>
+    <span class="n">_translations</span> <span class="o">=</span> <span class="p">{}</span>
+    <span class="k">for</span> <span class="n">path</span> <span class="ow">in</span> <span class="n">os</span><span class="o">.</span><span class="n">listdir</span><span class="p">(</span><span class="n">directory</span><span class="p">):</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">path</span><span class="o">.</span><span class="n">endswith</span><span class="p">(</span><span class="s">&quot;.csv&quot;</span><span class="p">):</span>
+            <span class="k">continue</span>
+        <span class="n">locale</span><span class="p">,</span> <span class="n">extension</span> <span class="o">=</span> <span class="n">path</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s">&quot;.&quot;</span><span class="p">)</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">re</span><span class="o">.</span><span class="n">match</span><span class="p">(</span><span class="s">&quot;[a-z]+(_[A-Z]+)?$&quot;</span><span class="p">,</span> <span class="n">locale</span><span class="p">):</span>
+            <span class="n">log</span><span class="o">.</span><span class="n">msg</span><span class="p">(</span><span class="s">&quot;Unrecognized locale </span><span class="si">%r</span><span class="s"> (path: </span><span class="si">%s</span><span class="s">)&quot;</span> <span class="o">%</span>
+                    <span class="p">(</span><span class="n">locale</span><span class="p">,</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">directory</span><span class="p">,</span> <span class="n">path</span><span class="p">)))</span>
+            <span class="k">continue</span>
+        <span class="n">f</span> <span class="o">=</span> <span class="nb">open</span><span class="p">(</span><span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">directory</span><span class="p">,</span> <span class="n">path</span><span class="p">),</span> <span class="s">&quot;r&quot;</span><span class="p">)</span>
+        <span class="n">_translations</span><span class="p">[</span><span class="n">locale</span><span class="p">]</span> <span class="o">=</span> <span class="p">{}</span>
+        <span class="k">for</span> <span class="n">i</span><span class="p">,</span> <span class="n">row</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">csv</span><span class="o">.</span><span class="n">reader</span><span class="p">(</span><span class="n">f</span><span class="p">)):</span>
+            <span class="k">if</span> <span class="ow">not</span> <span class="n">row</span> <span class="ow">or</span> <span class="nb">len</span><span class="p">(</span><span class="n">row</span><span class="p">)</span> <span class="o">&lt;</span> <span class="mi">2</span><span class="p">:</span>
+                <span class="k">continue</span>
+            <span class="n">row</span> <span class="o">=</span> <span class="p">[</span><span class="n">c</span><span class="o">.</span><span class="n">decode</span><span class="p">(</span><span class="s">&quot;utf-8&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">strip</span><span class="p">()</span> <span class="k">for</span> <span class="n">c</span> <span class="ow">in</span> <span class="n">row</span><span class="p">]</span>
+            <span class="n">english</span><span class="p">,</span> <span class="n">translation</span> <span class="o">=</span> <span class="n">row</span><span class="p">[:</span><span class="mi">2</span><span class="p">]</span>
+            <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">row</span><span class="p">)</span> <span class="o">&gt;</span> <span class="mi">2</span><span class="p">:</span>
+                <span class="n">plural</span> <span class="o">=</span> <span class="n">row</span><span class="p">[</span><span class="mi">2</span><span class="p">]</span> <span class="ow">or</span> <span class="s">&quot;unknown&quot;</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="n">plural</span> <span class="o">=</span> <span class="s">&quot;unknown&quot;</span>
+            <span class="k">if</span> <span class="n">plural</span> <span class="ow">not</span> <span class="ow">in</span> <span class="p">(</span><span class="s">&quot;plural&quot;</span><span class="p">,</span> <span class="s">&quot;singular&quot;</span><span class="p">,</span> <span class="s">&quot;unknown&quot;</span><span class="p">):</span>
+                <span class="n">log</span><span class="o">.</span><span class="n">msg</span><span class="p">(</span><span class="s">&quot;Unrecognized plural indicator </span><span class="si">%r</span><span class="s"> in </span><span class="si">%s</span><span class="s"> line </span><span class="si">%d</span><span class="s">&quot;</span> <span class="o">%</span>
+                        <span class="p">(</span><span class="n">plural</span><span class="p">,</span> <span class="n">path</span><span class="p">,</span> <span class="n">i</span> <span class="o">+</span> <span class="mi">1</span><span class="p">))</span>
+                <span class="k">continue</span>
+            <span class="n">_translations</span><span class="p">[</span><span class="n">locale</span><span class="p">]</span><span class="o">.</span><span class="n">setdefault</span><span class="p">(</span><span class="n">plural</span><span class="p">,</span> <span class="p">{})[</span><span class="n">english</span><span class="p">]</span> <span class="o">=</span> <span class="n">translation</span>
+        <span class="n">f</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
+    <span class="n">_supported_locales</span> <span class="o">=</span> <span class="nb">frozenset</span><span class="p">(</span><span class="nb">list</span><span class="p">(</span><span class="n">_translations</span><span class="o">.</span><span class="n">keys</span><span class="p">())</span> <span class="o">+</span>
+                                        <span class="p">[</span><span class="n">_default_locale</span><span class="p">])</span>
+    <span class="n">log</span><span class="o">.</span><span class="n">msg</span><span class="p">(</span><span class="s">&quot;Supported locales: </span><span class="si">%s</span><span class="s">&quot;</span> <span class="o">%</span> <span class="nb">sorted</span><span class="p">(</span><span class="n">_supported_locales</span><span class="p">))</span>
+
+</div>
+<div class="viewcode-block" id="load_gettext_translations"><a class="viewcode-back" href="../../locale.html#cyclone.locale.load_gettext_translations">[docs]</a><span class="k">def</span> <span class="nf">load_gettext_translations</span><span class="p">(</span><span class="n">directory</span><span class="p">,</span> <span class="n">domain</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;Loads translations from gettext&#39;s locale tree</span>
+
+<span class="sd">    Locale tree is similar to system&#39;s /usr/share/locale, like:</span>
+
+<span class="sd">    {directory}/{lang}/LC_MESSAGES/{domain}.mo</span>
+
+<span class="sd">    Three steps are required to have you app translated:</span>
+
+<span class="sd">    1. Generate POT translation file</span>
+<span class="sd">        xgettext --language=Python --keyword=_:1,2 -d cyclone file1.py fileN..</span>
+
+<span class="sd">    2. Merge against existing POT file:</span>
+<span class="sd">        msgmerge old.po cyclone.po &gt; new.po</span>
+
+<span class="sd">    3. Compile:</span>
+<span class="sd">        msgfmt cyclone.po -o {directory}/pt_BR/LC_MESSAGES/cyclone.mo</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="kn">import</span> <span class="nn">gettext</span>
+    <span class="k">global</span> <span class="n">_translations</span>
+    <span class="k">global</span> <span class="n">_supported_locales</span>
+    <span class="k">global</span> <span class="n">_use_gettext</span>
+    <span class="n">_translations</span> <span class="o">=</span> <span class="p">{}</span>
+    <span class="k">for</span> <span class="n">lang</span> <span class="ow">in</span> <span class="n">os</span><span class="o">.</span><span class="n">listdir</span><span class="p">(</span><span class="n">directory</span><span class="p">):</span>
+        <span class="k">if</span> <span class="n">lang</span><span class="o">.</span><span class="n">startswith</span><span class="p">(</span><span class="s">&#39;.&#39;</span><span class="p">):</span>
+            <span class="k">continue</span>  <span class="c"># skip .svn, etc</span>
+        <span class="k">if</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">isfile</span><span class="p">(</span><span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">directory</span><span class="p">,</span> <span class="n">lang</span><span class="p">)):</span>
+            <span class="k">continue</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">os</span><span class="o">.</span><span class="n">stat</span><span class="p">(</span><span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">directory</span><span class="p">,</span> <span class="n">lang</span><span class="p">,</span>
+                    <span class="s">&quot;LC_MESSAGES&quot;</span><span class="p">,</span> <span class="n">domain</span> <span class="o">+</span> <span class="s">&quot;.mo&quot;</span><span class="p">))</span>
+            <span class="n">_translations</span><span class="p">[</span><span class="n">lang</span><span class="p">]</span> <span class="o">=</span> <span class="n">gettext</span><span class="o">.</span><span class="n">translation</span><span class="p">(</span><span class="n">domain</span><span class="p">,</span> <span class="n">directory</span><span class="p">,</span>
+                                                      <span class="n">languages</span><span class="o">=</span><span class="p">[</span><span class="n">lang</span><span class="p">])</span>
+        <span class="k">except</span> <span class="ne">Exception</span><span class="p">,</span> <span class="n">e</span><span class="p">:</span>
+            <span class="c"># These messages are not printed in twistd, because it&#39;s</span>
+            <span class="c"># before the log is open.</span>
+            <span class="k">print</span><span class="p">(</span><span class="s">&quot;Cannot load translation for &#39;</span><span class="si">%s</span><span class="s">&#39;: </span><span class="si">%s</span><span class="s">&quot;</span> <span class="o">%</span> <span class="p">(</span><span class="n">lang</span><span class="p">,</span> <span class="nb">str</span><span class="p">(</span><span class="n">e</span><span class="p">)))</span>
+            <span class="c">#log.msg(&quot;Cannot load translation for &#39;%s&#39;: %s&quot; % (lang, str(e)))</span>
+            <span class="k">continue</span>
+    <span class="n">_supported_locales</span> <span class="o">=</span> <span class="nb">frozenset</span><span class="p">(</span><span class="nb">list</span><span class="p">(</span><span class="n">_translations</span><span class="o">.</span><span class="n">keys</span><span class="p">())</span> <span class="o">+</span>
+                                    <span class="p">[</span><span class="n">_default_locale</span><span class="p">])</span>
+    <span class="n">_use_gettext</span> <span class="o">=</span> <span class="bp">True</span>
+    <span class="n">reactor</span><span class="o">.</span><span class="n">callWhenRunning</span><span class="p">(</span><span class="n">log</span><span class="o">.</span><span class="n">msg</span><span class="p">,</span>
+                        <span class="s">&quot;Supported locales: </span><span class="si">%s</span><span class="s">&quot;</span> <span class="o">%</span> <span class="nb">sorted</span><span class="p">(</span><span class="n">_supported_locales</span><span class="p">))</span>
+
+</div>
+<div class="viewcode-block" id="get_supported_locales"><a class="viewcode-back" href="../../locale.html#cyclone.locale.get_supported_locales">[docs]</a><span class="k">def</span> <span class="nf">get_supported_locales</span><span class="p">():</span>
+    <span class="sd">&quot;&quot;&quot;Returns a list of all the supported locale codes.&quot;&quot;&quot;</span>
+    <span class="k">return</span> <span class="n">_supported_locales</span>
+
+</div>
+<div class="viewcode-block" id="Locale"><a class="viewcode-back" href="../../locale.html#cyclone.locale.Locale">[docs]</a><span class="k">class</span> <span class="nc">Locale</span><span class="p">(</span><span class="nb">object</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;Object representing a locale.</span>
+
+<span class="sd">    After calling one of `load_translations` or `load_gettext_translations`,</span>
+<span class="sd">    call `get` or `get_closest` to get a Locale object.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="nd">@classmethod</span>
+<div class="viewcode-block" id="Locale.get_closest"><a class="viewcode-back" href="../../locale.html#cyclone.locale.Locale.get_closest">[docs]</a>    <span class="k">def</span> <span class="nf">get_closest</span><span class="p">(</span><span class="n">cls</span><span class="p">,</span> <span class="o">*</span><span class="n">locale_codes</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Returns the closest match for the given locale code.&quot;&quot;&quot;</span>
+        <span class="k">for</span> <span class="n">code</span> <span class="ow">in</span> <span class="n">locale_codes</span><span class="p">:</span>
+            <span class="k">if</span> <span class="ow">not</span> <span class="n">code</span><span class="p">:</span>
+                <span class="k">continue</span>
+            <span class="n">code</span> <span class="o">=</span> <span class="n">code</span><span class="o">.</span><span class="n">replace</span><span class="p">(</span><span class="s">&quot;-&quot;</span><span class="p">,</span> <span class="s">&quot;_&quot;</span><span class="p">)</span>
+            <span class="n">parts</span> <span class="o">=</span> <span class="n">code</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s">&quot;_&quot;</span><span class="p">)</span>
+            <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">parts</span><span class="p">)</span> <span class="o">&gt;</span> <span class="mi">2</span><span class="p">:</span>
+                <span class="k">continue</span>
+            <span class="k">elif</span> <span class="nb">len</span><span class="p">(</span><span class="n">parts</span><span class="p">)</span> <span class="o">==</span> <span class="mi">2</span><span class="p">:</span>
+                <span class="n">code</span> <span class="o">=</span> <span class="n">parts</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">lower</span><span class="p">()</span> <span class="o">+</span> <span class="s">&quot;_&quot;</span> <span class="o">+</span> <span class="n">parts</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span><span class="o">.</span><span class="n">upper</span><span class="p">()</span>
+            <span class="k">if</span> <span class="n">code</span> <span class="ow">in</span> <span class="n">_supported_locales</span><span class="p">:</span>
+                <span class="k">return</span> <span class="n">cls</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">code</span><span class="p">)</span>
+            <span class="k">if</span> <span class="n">parts</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">lower</span><span class="p">()</span> <span class="ow">in</span> <span class="n">_supported_locales</span><span class="p">:</span>
+                <span class="k">return</span> <span class="n">cls</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">parts</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">lower</span><span class="p">())</span>
+        <span class="k">return</span> <span class="n">cls</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">_default_locale</span><span class="p">)</span>
+</div>
+    <span class="nd">@classmethod</span>
+<div class="viewcode-block" id="Locale.get"><a class="viewcode-back" href="../../locale.html#cyclone.locale.Locale.get">[docs]</a>    <span class="k">def</span> <span class="nf">get</span><span class="p">(</span><span class="n">cls</span><span class="p">,</span> <span class="n">code</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Returns the Locale for the given locale code.</span>
+
+<span class="sd">        If it is not supported, we raise an exception.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="nb">hasattr</span><span class="p">(</span><span class="n">cls</span><span class="p">,</span> <span class="s">&quot;_cache&quot;</span><span class="p">):</span>
+            <span class="n">cls</span><span class="o">.</span><span class="n">_cache</span> <span class="o">=</span> <span class="p">{}</span>
+        <span class="k">if</span> <span class="n">code</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">cls</span><span class="o">.</span><span class="n">_cache</span><span class="p">:</span>
+            <span class="k">assert</span> <span class="n">code</span> <span class="ow">in</span> <span class="n">_supported_locales</span>
+            <span class="n">translations</span> <span class="o">=</span> <span class="n">_translations</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">code</span><span class="p">,</span> <span class="bp">None</span><span class="p">)</span>
+            <span class="k">if</span> <span class="n">translations</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+                <span class="n">locale</span> <span class="o">=</span> <span class="n">CSVLocale</span><span class="p">(</span><span class="n">code</span><span class="p">,</span> <span class="p">{})</span>
+            <span class="k">elif</span> <span class="n">_use_gettext</span><span class="p">:</span>
+                <span class="n">locale</span> <span class="o">=</span> <span class="n">GettextLocale</span><span class="p">(</span><span class="n">code</span><span class="p">,</span> <span class="n">translations</span><span class="p">)</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="n">locale</span> <span class="o">=</span> <span class="n">CSVLocale</span><span class="p">(</span><span class="n">code</span><span class="p">,</span> <span class="n">translations</span><span class="p">)</span>
+            <span class="n">cls</span><span class="o">.</span><span class="n">_cache</span><span class="p">[</span><span class="n">code</span><span class="p">]</span> <span class="o">=</span> <span class="n">locale</span>
+        <span class="k">return</span> <span class="n">cls</span><span class="o">.</span><span class="n">_cache</span><span class="p">[</span><span class="n">code</span><span class="p">]</span>
+</div>
+    <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">code</span><span class="p">,</span> <span class="n">translations</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">code</span> <span class="o">=</span> <span class="n">code</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">name</span> <span class="o">=</span> <span class="n">LOCALE_NAMES</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">code</span><span class="p">,</span> <span class="p">{})</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s">&quot;name&quot;</span><span class="p">,</span> <span class="s">u&quot;Unknown&quot;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">rtl</span> <span class="o">=</span> <span class="bp">False</span>
+        <span class="k">for</span> <span class="n">prefix</span> <span class="ow">in</span> <span class="p">[</span><span class="s">&quot;fa&quot;</span><span class="p">,</span> <span class="s">&quot;ar&quot;</span><span class="p">,</span> <span class="s">&quot;he&quot;</span><span class="p">]:</span>
+            <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">code</span><span class="o">.</span><span class="n">startswith</span><span class="p">(</span><span class="n">prefix</span><span class="p">):</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">rtl</span> <span class="o">=</span> <span class="bp">True</span>
+                <span class="k">break</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">translations</span> <span class="o">=</span> <span class="n">translations</span>
+
+        <span class="c"># Initialize strings for date formatting</span>
+        <span class="n">_</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">translate</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_months</span> <span class="o">=</span> <span class="p">[</span>
+            <span class="n">_</span><span class="p">(</span><span class="s">&quot;January&quot;</span><span class="p">),</span> <span class="n">_</span><span class="p">(</span><span class="s">&quot;February&quot;</span><span class="p">),</span> <span class="n">_</span><span class="p">(</span><span class="s">&quot;March&quot;</span><span class="p">),</span> <span class="n">_</span><span class="p">(</span><span class="s">&quot;April&quot;</span><span class="p">),</span>
+            <span class="n">_</span><span class="p">(</span><span class="s">&quot;May&quot;</span><span class="p">),</span> <span class="n">_</span><span class="p">(</span><span class="s">&quot;June&quot;</span><span class="p">),</span> <span class="n">_</span><span class="p">(</span><span class="s">&quot;July&quot;</span><span class="p">),</span> <span class="n">_</span><span class="p">(</span><span class="s">&quot;August&quot;</span><span class="p">),</span>
+            <span class="n">_</span><span class="p">(</span><span class="s">&quot;September&quot;</span><span class="p">),</span> <span class="n">_</span><span class="p">(</span><span class="s">&quot;October&quot;</span><span class="p">),</span> <span class="n">_</span><span class="p">(</span><span class="s">&quot;November&quot;</span><span class="p">),</span> <span class="n">_</span><span class="p">(</span><span class="s">&quot;December&quot;</span><span class="p">)]</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_weekdays</span> <span class="o">=</span> <span class="p">[</span>
+            <span class="n">_</span><span class="p">(</span><span class="s">&quot;Monday&quot;</span><span class="p">),</span> <span class="n">_</span><span class="p">(</span><span class="s">&quot;Tuesday&quot;</span><span class="p">),</span> <span class="n">_</span><span class="p">(</span><span class="s">&quot;Wednesday&quot;</span><span class="p">),</span> <span class="n">_</span><span class="p">(</span><span class="s">&quot;Thursday&quot;</span><span class="p">),</span>
+            <span class="n">_</span><span class="p">(</span><span class="s">&quot;Friday&quot;</span><span class="p">),</span> <span class="n">_</span><span class="p">(</span><span class="s">&quot;Saturday&quot;</span><span class="p">),</span> <span class="n">_</span><span class="p">(</span><span class="s">&quot;Sunday&quot;</span><span class="p">)]</span>
+
+<div class="viewcode-block" id="Locale.translate"><a class="viewcode-back" href="../../locale.html#cyclone.locale.Locale.translate">[docs]</a>    <span class="k">def</span> <span class="nf">translate</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">message</span><span class="p">,</span> <span class="n">plural_message</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="n">count</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Returns the translation for the given message for this locale.</span>
+
+<span class="sd">        If plural_message is given, you must also provide count. We return</span>
+<span class="sd">        plural_message when count != 1, and we return the singular form</span>
+<span class="sd">        for the given message when count == 1.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">raise</span> <span class="ne">NotImplementedError</span><span class="p">()</span>
+</div>
+<div class="viewcode-block" id="Locale.format_date"><a class="viewcode-back" href="../../locale.html#cyclone.locale.Locale.format_date">[docs]</a>    <span class="k">def</span> <span class="nf">format_date</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">date</span><span class="p">,</span> <span class="n">gmt_offset</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span> <span class="n">relative</span><span class="o">=</span><span class="bp">True</span><span class="p">,</span> <span class="n">shorter</span><span class="o">=</span><span class="bp">False</span><span class="p">,</span>
+                    <span class="n">full_format</span><span class="o">=</span><span class="bp">False</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Formats the given date (which should be GMT).</span>
+
+<span class="sd">        By default, we return a relative time (e.g., &quot;2 minutes ago&quot;). You</span>
+<span class="sd">        can return an absolute date string with relative=False.</span>
+
+<span class="sd">        You can force a full format date (&quot;July 10, 1980&quot;) with</span>
+<span class="sd">        full_format=True.</span>
+
+<span class="sd">        This method is primarily intended for dates in the past.</span>
+<span class="sd">        For dates in the future, we fall back to full format.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">code</span><span class="o">.</span><span class="n">startswith</span><span class="p">(</span><span class="s">&quot;ru&quot;</span><span class="p">):</span>
+            <span class="n">relative</span> <span class="o">=</span> <span class="bp">False</span>
+        <span class="k">if</span> <span class="nb">type</span><span class="p">(</span><span class="n">date</span><span class="p">)</span> <span class="ow">in</span> <span class="p">(</span><span class="nb">int</span><span class="p">,</span> <span class="nb">long</span><span class="p">,</span> <span class="nb">float</span><span class="p">):</span>
+            <span class="n">date</span> <span class="o">=</span> <span class="n">datetime</span><span class="o">.</span><span class="n">datetime</span><span class="o">.</span><span class="n">utcfromtimestamp</span><span class="p">(</span><span class="n">date</span><span class="p">)</span>
+        <span class="n">now</span> <span class="o">=</span> <span class="n">datetime</span><span class="o">.</span><span class="n">datetime</span><span class="o">.</span><span class="n">utcnow</span><span class="p">()</span>
+        <span class="k">if</span> <span class="n">date</span> <span class="o">&gt;</span> <span class="n">now</span><span class="p">:</span>
+            <span class="k">if</span> <span class="n">relative</span> <span class="ow">and</span> <span class="p">(</span><span class="n">date</span> <span class="o">-</span> <span class="n">now</span><span class="p">)</span><span class="o">.</span><span class="n">seconds</span> <span class="o">&lt;</span> <span class="mi">60</span><span class="p">:</span>
+                <span class="c"># Due to click skew, things are some things slightly</span>
+                <span class="c"># in the future. Round timestamps in the immediate</span>
+                <span class="c"># future down to now in relative mode.</span>
+                <span class="n">date</span> <span class="o">=</span> <span class="n">now</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="c"># Otherwise, future dates always use the full format.</span>
+                <span class="n">full_format</span> <span class="o">=</span> <span class="bp">True</span>
+        <span class="n">local_date</span> <span class="o">=</span> <span class="n">date</span> <span class="o">-</span> <span class="n">datetime</span><span class="o">.</span><span class="n">timedelta</span><span class="p">(</span><span class="n">minutes</span><span class="o">=</span><span class="n">gmt_offset</span><span class="p">)</span>
+        <span class="n">local_now</span> <span class="o">=</span> <span class="n">now</span> <span class="o">-</span> <span class="n">datetime</span><span class="o">.</span><span class="n">timedelta</span><span class="p">(</span><span class="n">minutes</span><span class="o">=</span><span class="n">gmt_offset</span><span class="p">)</span>
+        <span class="n">local_yesterday</span> <span class="o">=</span> <span class="n">local_now</span> <span class="o">-</span> <span class="n">datetime</span><span class="o">.</span><span class="n">timedelta</span><span class="p">(</span><span class="n">hours</span><span class="o">=</span><span class="mi">24</span><span class="p">)</span>
+        <span class="n">difference</span> <span class="o">=</span> <span class="n">now</span> <span class="o">-</span> <span class="n">date</span>
+        <span class="n">seconds</span> <span class="o">=</span> <span class="n">difference</span><span class="o">.</span><span class="n">seconds</span>
+        <span class="n">days</span> <span class="o">=</span> <span class="n">difference</span><span class="o">.</span><span class="n">days</span>
+
+        <span class="n">_</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">translate</span>
+        <span class="n">format</span> <span class="o">=</span> <span class="bp">None</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">full_format</span><span class="p">:</span>
+            <span class="k">if</span> <span class="n">relative</span> <span class="ow">and</span> <span class="n">days</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
+                <span class="k">if</span> <span class="n">seconds</span> <span class="o">&lt;</span> <span class="mi">50</span><span class="p">:</span>
+                    <span class="k">return</span> <span class="n">_</span><span class="p">(</span><span class="s">&quot;1 second ago&quot;</span><span class="p">,</span> <span class="s">&quot;</span><span class="si">%(seconds)d</span><span class="s"> seconds ago&quot;</span><span class="p">,</span>
+                             <span class="n">seconds</span><span class="p">)</span> <span class="o">%</span> <span class="p">{</span><span class="s">&quot;seconds&quot;</span><span class="p">:</span> <span class="n">seconds</span><span class="p">}</span>
+
+                <span class="k">if</span> <span class="n">seconds</span> <span class="o">&lt;</span> <span class="mi">50</span> <span class="o">*</span> <span class="mi">60</span><span class="p">:</span>
+                    <span class="n">minutes</span> <span class="o">=</span> <span class="nb">round</span><span class="p">(</span><span class="n">seconds</span> <span class="o">/</span> <span class="mf">60.0</span><span class="p">)</span>
+                    <span class="k">return</span> <span class="n">_</span><span class="p">(</span><span class="s">&quot;1 minute ago&quot;</span><span class="p">,</span> <span class="s">&quot;</span><span class="si">%(minutes)d</span><span class="s"> minutes ago&quot;</span><span class="p">,</span>
+                             <span class="n">minutes</span><span class="p">)</span> <span class="o">%</span> <span class="p">{</span><span class="s">&quot;minutes&quot;</span><span class="p">:</span> <span class="n">minutes</span><span class="p">}</span>
+
+                <span class="n">hours</span> <span class="o">=</span> <span class="nb">round</span><span class="p">(</span><span class="n">seconds</span> <span class="o">/</span> <span class="p">(</span><span class="mf">60.0</span> <span class="o">*</span> <span class="mi">60</span><span class="p">))</span>
+                <span class="k">return</span> <span class="n">_</span><span class="p">(</span><span class="s">&quot;1 hour ago&quot;</span><span class="p">,</span> <span class="s">&quot;</span><span class="si">%(hours)d</span><span class="s"> hours ago&quot;</span><span class="p">,</span>
+                         <span class="n">hours</span><span class="p">)</span> <span class="o">%</span> <span class="p">{</span><span class="s">&quot;hours&quot;</span><span class="p">:</span> <span class="n">hours</span><span class="p">}</span>
+
+            <span class="k">if</span> <span class="n">days</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
+                <span class="n">format</span> <span class="o">=</span> <span class="n">_</span><span class="p">(</span><span class="s">&quot;</span><span class="si">%(time)s</span><span class="s">&quot;</span><span class="p">)</span>
+            <span class="k">elif</span> <span class="n">days</span> <span class="o">==</span> <span class="mi">1</span> <span class="ow">and</span> <span class="n">local_date</span><span class="o">.</span><span class="n">day</span> <span class="o">==</span> <span class="n">local_yesterday</span><span class="o">.</span><span class="n">day</span> <span class="ow">and</span> \
+                 <span class="n">relative</span><span class="p">:</span>
+                <span class="n">format</span> <span class="o">=</span> <span class="n">_</span><span class="p">(</span><span class="s">&quot;yesterday&quot;</span><span class="p">)</span> <span class="k">if</span> <span class="n">shorter</span> <span class="k">else</span> \
+                         <span class="n">_</span><span class="p">(</span><span class="s">&quot;yesterday at </span><span class="si">%(time)s</span><span class="s">&quot;</span><span class="p">)</span>
+            <span class="k">elif</span> <span class="n">days</span> <span class="o">&lt;</span> <span class="mi">5</span><span class="p">:</span>
+                <span class="n">format</span> <span class="o">=</span> <span class="n">_</span><span class="p">(</span><span class="s">&quot;</span><span class="si">%(weekday)s</span><span class="s">&quot;</span><span class="p">)</span> <span class="k">if</span> <span class="n">shorter</span> <span class="k">else</span> \
+                         <span class="n">_</span><span class="p">(</span><span class="s">&quot;</span><span class="si">%(weekday)s</span><span class="s"> at </span><span class="si">%(time)s</span><span class="s">&quot;</span><span class="p">)</span>
+            <span class="k">elif</span> <span class="n">days</span> <span class="o">&lt;</span> <span class="mi">334</span><span class="p">:</span>  <span class="c"># 11mo, since confusing for same month last year</span>
+                <span class="n">format</span> <span class="o">=</span> <span class="n">_</span><span class="p">(</span><span class="s">&quot;</span><span class="si">%(month_name)s</span><span class="s"> </span><span class="si">%(day)s</span><span class="s">&quot;</span><span class="p">)</span> <span class="k">if</span> <span class="n">shorter</span> <span class="k">else</span> \
+                         <span class="n">_</span><span class="p">(</span><span class="s">&quot;</span><span class="si">%(month_name)s</span><span class="s"> </span><span class="si">%(day)s</span><span class="s"> at </span><span class="si">%(time)s</span><span class="s">&quot;</span><span class="p">)</span>
+
+        <span class="k">if</span> <span class="n">format</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="n">format</span> <span class="o">=</span> <span class="n">_</span><span class="p">(</span><span class="s">&quot;</span><span class="si">%(month_name)s</span><span class="s"> </span><span class="si">%(day)s</span><span class="s">, </span><span class="si">%(year)s</span><span class="s">&quot;</span><span class="p">)</span> <span class="k">if</span> <span class="n">shorter</span> <span class="k">else</span> \
+                     <span class="n">_</span><span class="p">(</span><span class="s">&quot;</span><span class="si">%(month_name)s</span><span class="s"> </span><span class="si">%(day)s</span><span class="s">, </span><span class="si">%(year)s</span><span class="s"> at </span><span class="si">%(time)s</span><span class="s">&quot;</span><span class="p">)</span>
+
+        <span class="n">tfhour_clock</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">code</span> <span class="ow">not</span> <span class="ow">in</span> <span class="p">(</span><span class="s">&quot;en&quot;</span><span class="p">,</span> <span class="s">&quot;en_US&quot;</span><span class="p">,</span> <span class="s">&quot;zh_CN&quot;</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">tfhour_clock</span><span class="p">:</span>
+            <span class="n">str_time</span> <span class="o">=</span> <span class="s">&quot;</span><span class="si">%d</span><span class="s">:</span><span class="si">%02d</span><span class="s">&quot;</span> <span class="o">%</span> <span class="p">(</span><span class="n">local_date</span><span class="o">.</span><span class="n">hour</span><span class="p">,</span> <span class="n">local_date</span><span class="o">.</span><span class="n">minute</span><span class="p">)</span>
+        <span class="k">elif</span> <span class="bp">self</span><span class="o">.</span><span class="n">code</span> <span class="o">==</span> <span class="s">&quot;zh_CN&quot;</span><span class="p">:</span>
+            <span class="n">str_time</span> <span class="o">=</span> <span class="s">&quot;</span><span class="si">%s%d</span><span class="s">:</span><span class="si">%02d</span><span class="s">&quot;</span> <span class="o">%</span> <span class="p">(</span>
+                <span class="p">(</span><span class="s">u&#39;</span><span class="se">\u4e0a\u5348</span><span class="s">&#39;</span><span class="p">,</span> <span class="s">u&#39;</span><span class="se">\u4e0b\u5348</span><span class="s">&#39;</span><span class="p">)[</span><span class="n">local_date</span><span class="o">.</span><span class="n">hour</span> <span class="o">&gt;=</span> <span class="mi">12</span><span class="p">],</span>
+                <span class="n">local_date</span><span class="o">.</span><span class="n">hour</span> <span class="o">%</span> <span class="mi">12</span> <span class="ow">or</span> <span class="mi">12</span><span class="p">,</span> <span class="n">local_date</span><span class="o">.</span><span class="n">minute</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">str_time</span> <span class="o">=</span> <span class="s">&quot;</span><span class="si">%d</span><span class="s">:</span><span class="si">%02d</span><span class="s"> </span><span class="si">%s</span><span class="s">&quot;</span> <span class="o">%</span> <span class="p">(</span>
+                <span class="n">local_date</span><span class="o">.</span><span class="n">hour</span> <span class="o">%</span> <span class="mi">12</span> <span class="ow">or</span> <span class="mi">12</span><span class="p">,</span> <span class="n">local_date</span><span class="o">.</span><span class="n">minute</span><span class="p">,</span>
+                <span class="p">(</span><span class="s">&quot;am&quot;</span><span class="p">,</span> <span class="s">&quot;pm&quot;</span><span class="p">)[</span><span class="n">local_date</span><span class="o">.</span><span class="n">hour</span> <span class="o">&gt;=</span> <span class="mi">12</span><span class="p">])</span>
+
+        <span class="k">return</span> <span class="n">format</span> <span class="o">%</span> <span class="p">{</span>
+            <span class="s">&quot;month_name&quot;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">_months</span><span class="p">[</span><span class="n">local_date</span><span class="o">.</span><span class="n">month</span> <span class="o">-</span> <span class="mi">1</span><span class="p">],</span>
+            <span class="s">&quot;weekday&quot;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">_weekdays</span><span class="p">[</span><span class="n">local_date</span><span class="o">.</span><span class="n">weekday</span><span class="p">()],</span>
+            <span class="s">&quot;day&quot;</span><span class="p">:</span> <span class="nb">str</span><span class="p">(</span><span class="n">local_date</span><span class="o">.</span><span class="n">day</span><span class="p">),</span>
+            <span class="s">&quot;year&quot;</span><span class="p">:</span> <span class="nb">str</span><span class="p">(</span><span class="n">local_date</span><span class="o">.</span><span class="n">year</span><span class="p">),</span>
+            <span class="s">&quot;time&quot;</span><span class="p">:</span> <span class="n">str_time</span>
+        <span class="p">}</span>
+</div>
+<div class="viewcode-block" id="Locale.format_day"><a class="viewcode-back" href="../../locale.html#cyclone.locale.Locale.format_day">[docs]</a>    <span class="k">def</span> <span class="nf">format_day</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">date</span><span class="p">,</span> <span class="n">gmt_offset</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span> <span class="n">dow</span><span class="o">=</span><span class="bp">True</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Formats the given date as a day of week.</span>
+
+<span class="sd">        Example: &quot;Monday, January 22&quot;. You can remove the day of week with</span>
+<span class="sd">        dow=False.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">local_date</span> <span class="o">=</span> <span class="n">date</span> <span class="o">-</span> <span class="n">datetime</span><span class="o">.</span><span class="n">timedelta</span><span class="p">(</span><span class="n">minutes</span><span class="o">=</span><span class="n">gmt_offset</span><span class="p">)</span>
+        <span class="n">_</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">translate</span>
+        <span class="k">if</span> <span class="n">dow</span><span class="p">:</span>
+            <span class="k">return</span> <span class="n">_</span><span class="p">(</span><span class="s">&quot;</span><span class="si">%(weekday)s</span><span class="s">, </span><span class="si">%(month_name)s</span><span class="s"> </span><span class="si">%(day)s</span><span class="s">&quot;</span><span class="p">)</span> <span class="o">%</span> <span class="p">{</span>
+                <span class="s">&quot;month_name&quot;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">_months</span><span class="p">[</span><span class="n">local_date</span><span class="o">.</span><span class="n">month</span> <span class="o">-</span> <span class="mi">1</span><span class="p">],</span>
+                <span class="s">&quot;weekday&quot;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">_weekdays</span><span class="p">[</span><span class="n">local_date</span><span class="o">.</span><span class="n">weekday</span><span class="p">()],</span>
+                <span class="s">&quot;day&quot;</span><span class="p">:</span> <span class="nb">str</span><span class="p">(</span><span class="n">local_date</span><span class="o">.</span><span class="n">day</span><span class="p">),</span>
+            <span class="p">}</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="k">return</span> <span class="n">_</span><span class="p">(</span><span class="s">&quot;</span><span class="si">%(month_name)s</span><span class="s"> </span><span class="si">%(day)s</span><span class="s">&quot;</span><span class="p">)</span> <span class="o">%</span> <span class="p">{</span>
+                <span class="s">&quot;month_name&quot;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">_months</span><span class="p">[</span><span class="n">local_date</span><span class="o">.</span><span class="n">month</span> <span class="o">-</span> <span class="mi">1</span><span class="p">],</span>
+                <span class="s">&quot;day&quot;</span><span class="p">:</span> <span class="nb">str</span><span class="p">(</span><span class="n">local_date</span><span class="o">.</span><span class="n">day</span><span class="p">),</span>
+            <span class="p">}</span>
+</div>
+<div class="viewcode-block" id="Locale.list"><a class="viewcode-back" href="../../locale.html#cyclone.locale.Locale.list">[docs]</a>    <span class="k">def</span> <span class="nf">list</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">parts</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Returns a comma-separated list for the given list of parts.</span>
+
+<span class="sd">        The format is, e.g., &quot;A, B and C&quot;, &quot;A and B&quot; or just &quot;A&quot; for lists</span>
+<span class="sd">        of size 1.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">_</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">translate</span>
+        <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">parts</span><span class="p">)</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
+            <span class="k">return</span> <span class="s">&quot;&quot;</span>
+        <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">parts</span><span class="p">)</span> <span class="o">==</span> <span class="mi">1</span><span class="p">:</span>
+            <span class="k">return</span> <span class="n">parts</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
+        <span class="n">comma</span> <span class="o">=</span> <span class="s">u&#39; </span><span class="se">\u0648</span><span class="s"> &#39;</span> <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">code</span><span class="o">.</span><span class="n">startswith</span><span class="p">(</span><span class="s">&quot;fa&quot;</span><span class="p">)</span> <span class="k">else</span> <span class="s">u&quot;, &quot;</span>
+        <span class="k">return</span> <span class="n">_</span><span class="p">(</span><span class="s">&quot;</span><span class="si">%(commas)s</span><span class="s"> and </span><span class="si">%(last)s</span><span class="s">&quot;</span><span class="p">)</span> <span class="o">%</span> <span class="p">{</span>
+            <span class="s">&quot;commas&quot;</span><span class="p">:</span> <span class="n">comma</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">parts</span><span class="p">[:</span><span class="o">-</span><span class="mi">1</span><span class="p">]),</span>
+            <span class="s">&quot;last&quot;</span><span class="p">:</span> <span class="n">parts</span><span class="p">[</span><span class="nb">len</span><span class="p">(</span><span class="n">parts</span><span class="p">)</span> <span class="o">-</span> <span class="mi">1</span><span class="p">],</span>
+        <span class="p">}</span>
+</div>
+<div class="viewcode-block" id="Locale.friendly_number"><a class="viewcode-back" href="../../locale.html#cyclone.locale.Locale.friendly_number">[docs]</a>    <span class="k">def</span> <span class="nf">friendly_number</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">value</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Returns a comma-separated number for the given integer.&quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">code</span> <span class="ow">not</span> <span class="ow">in</span> <span class="p">(</span><span class="s">&quot;en&quot;</span><span class="p">,</span> <span class="s">&quot;en_US&quot;</span><span class="p">):</span>
+            <span class="k">return</span> <span class="nb">str</span><span class="p">(</span><span class="n">value</span><span class="p">)</span>
+        <span class="n">value</span> <span class="o">=</span> <span class="nb">str</span><span class="p">(</span><span class="n">value</span><span class="p">)</span>
+        <span class="n">parts</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="k">while</span> <span class="n">value</span><span class="p">:</span>
+            <span class="n">parts</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">value</span><span class="p">[</span><span class="o">-</span><span class="mi">3</span><span class="p">:])</span>
+            <span class="n">value</span> <span class="o">=</span> <span class="n">value</span><span class="p">[:</span><span class="o">-</span><span class="mi">3</span><span class="p">]</span>
+        <span class="k">return</span> <span class="s">&quot;,&quot;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="nb">reversed</span><span class="p">(</span><span class="n">parts</span><span class="p">))</span>
+
+</div></div>
+<div class="viewcode-block" id="CSVLocale"><a class="viewcode-back" href="../../locale.html#cyclone.locale.CSVLocale">[docs]</a><span class="k">class</span> <span class="nc">CSVLocale</span><span class="p">(</span><span class="n">Locale</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;Locale implementation using tornado&#39;s CSV translation format.&quot;&quot;&quot;</span>
+    <span class="k">def</span> <span class="nf">translate</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">message</span><span class="p">,</span> <span class="n">plural_message</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="n">count</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+        <span class="k">if</span> <span class="n">plural_message</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="k">assert</span> <span class="n">count</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span>
+            <span class="k">if</span> <span class="n">count</span> <span class="o">!=</span> <span class="mi">1</span><span class="p">:</span>
+                <span class="n">message</span> <span class="o">=</span> <span class="n">plural_message</span>
+                <span class="n">message_dict</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">translations</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s">&quot;plural&quot;</span><span class="p">,</span> <span class="p">{})</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="n">message_dict</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">translations</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s">&quot;singular&quot;</span><span class="p">,</span> <span class="p">{})</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">message_dict</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">translations</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s">&quot;unknown&quot;</span><span class="p">,</span> <span class="p">{})</span>
+        <span class="k">return</span> <span class="n">message_dict</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">message</span><span class="p">,</span> <span class="n">message</span><span class="p">)</span>
+
+</div>
+<div class="viewcode-block" id="GettextLocale"><a class="viewcode-back" href="../../locale.html#cyclone.locale.GettextLocale">[docs]</a><span class="k">class</span> <span class="nc">GettextLocale</span><span class="p">(</span><span class="n">Locale</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;Locale implementation using the gettext module.&quot;&quot;&quot;</span>
+    <span class="k">def</span> <span class="nf">translate</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">message</span><span class="p">,</span> <span class="n">plural_message</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="n">count</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
+        <span class="k">if</span> <span class="n">plural_message</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="k">assert</span> <span class="n">count</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span>
+            <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">translations</span><span class="o">.</span><span class="n">ungettext</span><span class="p">(</span><span class="n">message</span><span class="p">,</span> <span class="n">plural_message</span><span class="p">,</span> <span class="n">count</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">translations</span><span class="o">.</span><span class="n">ugettext</span><span class="p">(</span><span class="n">message</span><span class="p">)</span>
+</div>
+<span class="n">LOCALE_NAMES</span> <span class="o">=</span> <span class="p">{</span>
+    <span class="s">&quot;af_ZA&quot;</span><span class="p">:</span> <span class="p">{</span><span class="s">&quot;name_en&quot;</span><span class="p">:</span> <span class="s">u&quot;Afrikaans&quot;</span><span class="p">,</span> <span class="s">&quot;name&quot;</span><span class="p">:</span> <span class="s">u&quot;Afrikaans&quot;</span><span class="p">},</span>
+    <span class="s">&quot;am_ET&quot;</span><span class="p">:</span> <span class="p">{</span><span class="s">&quot;name_en&quot;</span><span class="p">:</span> <span class="s">u&quot;Amharic&quot;</span><span class="p">,</span> <span class="s">&quot;name&quot;</span><span class="p">:</span> <span class="s">u&#39;</span><span class="se">\u12a0\u121b\u122d\u129b</span><span class="s">&#39;</span><span class="p">},</span>
+    <span class="s">&quot;ar_AR&quot;</span><span class="p">:</span> <span class="p">{</span><span class="s">&quot;name_en&quot;</span><span class="p">:</span> <span class="s">u&quot;Arabic&quot;</span><span class="p">,</span>
+    <span class="s">&quot;name&quot;</span><span class="p">:</span> <span class="s">u&quot;</span><span class="se">\u0627\u0644\u0639\u0631\u0628\u064a\u0629</span><span class="s">&quot;</span><span class="p">},</span>
+    <span class="s">&quot;bg_BG&quot;</span><span class="p">:</span> <span class="p">{</span><span class="s">&quot;name_en&quot;</span><span class="p">:</span> <span class="s">u&quot;Bulgarian&quot;</span><span class="p">,</span>
+    <span class="s">&quot;name&quot;</span><span class="p">:</span> <span class="s">u&quot;</span><span class="se">\u0411\u044a\u043b\u0433\u0430\u0440\u0441\u043a\u0438</span><span class="s">&quot;</span><span class="p">},</span>
+    <span class="s">&quot;bn_IN&quot;</span><span class="p">:</span> <span class="p">{</span><span class="s">&quot;name_en&quot;</span><span class="p">:</span> <span class="s">u&quot;Bengali&quot;</span><span class="p">,</span>
+    <span class="s">&quot;name&quot;</span><span class="p">:</span> <span class="s">u&quot;</span><span class="se">\u09ac\u09be\u0982\u09b2\u09be</span><span class="s">&quot;</span><span class="p">},</span>
+    <span class="s">&quot;bs_BA&quot;</span><span class="p">:</span> <span class="p">{</span><span class="s">&quot;name_en&quot;</span><span class="p">:</span> <span class="s">u&quot;Bosnian&quot;</span><span class="p">,</span> <span class="s">&quot;name&quot;</span><span class="p">:</span> <span class="s">u&quot;Bosanski&quot;</span><span class="p">},</span>
+    <span class="s">&quot;ca_ES&quot;</span><span class="p">:</span> <span class="p">{</span><span class="s">&quot;name_en&quot;</span><span class="p">:</span> <span class="s">u&quot;Catalan&quot;</span><span class="p">,</span> <span class="s">&quot;name&quot;</span><span class="p">:</span> <span class="s">u&quot;Catal</span><span class="se">\xe0</span><span class="s">&quot;</span><span class="p">},</span>
+    <span class="s">&quot;cs_CZ&quot;</span><span class="p">:</span> <span class="p">{</span><span class="s">&quot;name_en&quot;</span><span class="p">:</span> <span class="s">u&quot;Czech&quot;</span><span class="p">,</span> <span class="s">&quot;name&quot;</span><span class="p">:</span> <span class="s">u&quot;</span><span class="se">\u010c</span><span class="s">e</span><span class="se">\u0161</span><span class="s">tina&quot;</span><span class="p">},</span>
+    <span class="s">&quot;cy_GB&quot;</span><span class="p">:</span> <span class="p">{</span><span class="s">&quot;name_en&quot;</span><span class="p">:</span> <span class="s">u&quot;Welsh&quot;</span><span class="p">,</span> <span class="s">&quot;name&quot;</span><span class="p">:</span> <span class="s">u&quot;Cymraeg&quot;</span><span class="p">},</span>
+    <span class="s">&quot;da_DK&quot;</span><span class="p">:</span> <span class="p">{</span><span class="s">&quot;name_en&quot;</span><span class="p">:</span> <span class="s">u&quot;Danish&quot;</span><span class="p">,</span> <span class="s">&quot;name&quot;</span><span class="p">:</span> <span class="s">u&quot;Dansk&quot;</span><span class="p">},</span>
+    <span class="s">&quot;de_DE&quot;</span><span class="p">:</span> <span class="p">{</span><span class="s">&quot;name_en&quot;</span><span class="p">:</span> <span class="s">u&quot;German&quot;</span><span class="p">,</span> <span class="s">&quot;name&quot;</span><span class="p">:</span> <span class="s">u&quot;Deutsch&quot;</span><span class="p">},</span>
+    <span class="s">&quot;el_GR&quot;</span><span class="p">:</span> <span class="p">{</span><span class="s">&quot;name_en&quot;</span><span class="p">:</span> <span class="s">u&quot;Greek&quot;</span><span class="p">,</span>
+    <span class="s">&quot;name&quot;</span><span class="p">:</span> <span class="s">u&quot;</span><span class="se">\u0395\u03bb\u03bb\u03b7\u03bd\u03b9\u03ba\u03ac</span><span class="s">&quot;</span><span class="p">},</span>
+    <span class="s">&quot;en_GB&quot;</span><span class="p">:</span> <span class="p">{</span><span class="s">&quot;name_en&quot;</span><span class="p">:</span> <span class="s">u&quot;English (UK)&quot;</span><span class="p">,</span> <span class="s">&quot;name&quot;</span><span class="p">:</span> <span class="s">u&quot;English (UK)&quot;</span><span class="p">},</span>
+    <span class="s">&quot;en_US&quot;</span><span class="p">:</span> <span class="p">{</span><span class="s">&quot;name_en&quot;</span><span class="p">:</span> <span class="s">u&quot;English (US)&quot;</span><span class="p">,</span> <span class="s">&quot;name&quot;</span><span class="p">:</span> <span class="s">u&quot;English (US)&quot;</span><span class="p">},</span>
+    <span class="s">&quot;es_ES&quot;</span><span class="p">:</span> <span class="p">{</span><span class="s">&quot;name_en&quot;</span><span class="p">:</span> <span class="s">u&quot;Spanish (Spain)&quot;</span><span class="p">,</span>
+    <span class="s">&quot;name&quot;</span><span class="p">:</span> <span class="s">u&quot;Espa</span><span class="se">\xf1</span><span class="s">ol (Espa</span><span class="se">\xf1</span><span class="s">a)&quot;</span><span class="p">},</span>
+    <span class="s">&quot;es_LA&quot;</span><span class="p">:</span> <span class="p">{</span><span class="s">&quot;name_en&quot;</span><span class="p">:</span> <span class="s">u&quot;Spanish&quot;</span><span class="p">,</span> <span class="s">&quot;name&quot;</span><span class="p">:</span> <span class="s">u&quot;Espa</span><span class="se">\xf1</span><span class="s">ol&quot;</span><span class="p">},</span>
+    <span class="s">&quot;et_EE&quot;</span><span class="p">:</span> <span class="p">{</span><span class="s">&quot;name_en&quot;</span><span class="p">:</span> <span class="s">u&quot;Estonian&quot;</span><span class="p">,</span> <span class="s">&quot;name&quot;</span><span class="p">:</span> <span class="s">u&quot;Eesti&quot;</span><span class="p">},</span>
+    <span class="s">&quot;eu_ES&quot;</span><span class="p">:</span> <span class="p">{</span><span class="s">&quot;name_en&quot;</span><span class="p">:</span> <span class="s">u&quot;Basque&quot;</span><span class="p">,</span> <span class="s">&quot;name&quot;</span><span class="p">:</span> <span class="s">u&quot;Euskara&quot;</span><span class="p">},</span>
+    <span class="s">&quot;fa_IR&quot;</span><span class="p">:</span> <span class="p">{</span><span class="s">&quot;name_en&quot;</span><span class="p">:</span> <span class="s">u&quot;Persian&quot;</span><span class="p">,</span>
+    <span class="s">&quot;name&quot;</span><span class="p">:</span> <span class="s">u&quot;</span><span class="se">\u0641\u0627\u0631\u0633\u06cc</span><span class="s">&quot;</span><span class="p">},</span>
+    <span class="s">&quot;fi_FI&quot;</span><span class="p">:</span> <span class="p">{</span><span class="s">&quot;name_en&quot;</span><span class="p">:</span> <span class="s">u&quot;Finnish&quot;</span><span class="p">,</span> <span class="s">&quot;name&quot;</span><span class="p">:</span> <span class="s">u&quot;Suomi&quot;</span><span class="p">},</span>
+    <span class="s">&quot;fr_CA&quot;</span><span class="p">:</span> <span class="p">{</span><span class="s">&quot;name_en&quot;</span><span class="p">:</span> <span class="s">u&quot;French (Canada)&quot;</span><span class="p">,</span> <span class="s">&quot;name&quot;</span><span class="p">:</span> <span class="s">u&quot;Fran</span><span class="se">\xe7</span><span class="s">ais (Canada)&quot;</span><span class="p">},</span>
+    <span class="s">&quot;fr_FR&quot;</span><span class="p">:</span> <span class="p">{</span><span class="s">&quot;name_en&quot;</span><span class="p">:</span> <span class="s">u&quot;French&quot;</span><span class="p">,</span> <span class="s">&quot;name&quot;</span><span class="p">:</span> <span class="s">u&quot;Fran</span><span class="se">\xe7</span><span class="s">ais&quot;</span><span class="p">},</span>
+    <span class="s">&quot;ga_IE&quot;</span><span class="p">:</span> <span class="p">{</span><span class="s">&quot;name_en&quot;</span><span class="p">:</span> <span class="s">u&quot;Irish&quot;</span><span class="p">,</span> <span class="s">&quot;name&quot;</span><span class="p">:</span> <span class="s">u&quot;Gaeilge&quot;</span><span class="p">},</span>
+    <span class="s">&quot;gl_ES&quot;</span><span class="p">:</span> <span class="p">{</span><span class="s">&quot;name_en&quot;</span><span class="p">:</span> <span class="s">u&quot;Galician&quot;</span><span class="p">,</span> <span class="s">&quot;name&quot;</span><span class="p">:</span> <span class="s">u&quot;Galego&quot;</span><span class="p">},</span>
+    <span class="s">&quot;he_IL&quot;</span><span class="p">:</span> <span class="p">{</span><span class="s">&quot;name_en&quot;</span><span class="p">:</span> <span class="s">u&quot;Hebrew&quot;</span><span class="p">,</span>
+    <span class="s">&quot;name&quot;</span><span class="p">:</span> <span class="s">u&quot;</span><span class="se">\u05e2\u05d1\u05e8\u05d9\u05ea</span><span class="s">&quot;</span><span class="p">},</span>
+    <span class="s">&quot;hi_IN&quot;</span><span class="p">:</span> <span class="p">{</span><span class="s">&quot;name_en&quot;</span><span class="p">:</span> <span class="s">u&quot;Hindi&quot;</span><span class="p">,</span>
+    <span class="s">&quot;name&quot;</span><span class="p">:</span> <span class="s">u&quot;</span><span class="se">\u0939\u093f\u0928\u094d\u0926\u0940</span><span class="s">&quot;</span><span class="p">},</span>
+    <span class="s">&quot;hr_HR&quot;</span><span class="p">:</span> <span class="p">{</span><span class="s">&quot;name_en&quot;</span><span class="p">:</span> <span class="s">u&quot;Croatian&quot;</span><span class="p">,</span> <span class="s">&quot;name&quot;</span><span class="p">:</span> <span class="s">u&quot;Hrvatski&quot;</span><span class="p">},</span>
+    <span class="s">&quot;hu_HU&quot;</span><span class="p">:</span> <span class="p">{</span><span class="s">&quot;name_en&quot;</span><span class="p">:</span> <span class="s">u&quot;Hungarian&quot;</span><span class="p">,</span> <span class="s">&quot;name&quot;</span><span class="p">:</span> <span class="s">u&quot;Magyar&quot;</span><span class="p">},</span>
+    <span class="s">&quot;id_ID&quot;</span><span class="p">:</span> <span class="p">{</span><span class="s">&quot;name_en&quot;</span><span class="p">:</span> <span class="s">u&quot;Indonesian&quot;</span><span class="p">,</span> <span class="s">&quot;name&quot;</span><span class="p">:</span> <span class="s">u&quot;Bahasa Indonesia&quot;</span><span class="p">},</span>
+    <span class="s">&quot;is_IS&quot;</span><span class="p">:</span> <span class="p">{</span><span class="s">&quot;name_en&quot;</span><span class="p">:</span> <span class="s">u&quot;Icelandic&quot;</span><span class="p">,</span> <span class="s">&quot;name&quot;</span><span class="p">:</span> <span class="s">u&quot;</span><span class="se">\xcd</span><span class="s">slenska&quot;</span><span class="p">},</span>
+    <span class="s">&quot;it_IT&quot;</span><span class="p">:</span> <span class="p">{</span><span class="s">&quot;name_en&quot;</span><span class="p">:</span> <span class="s">u&quot;Italian&quot;</span><span class="p">,</span> <span class="s">&quot;name&quot;</span><span class="p">:</span> <span class="s">u&quot;Italiano&quot;</span><span class="p">},</span>
+    <span class="s">&quot;ja_JP&quot;</span><span class="p">:</span> <span class="p">{</span><span class="s">&quot;name_en&quot;</span><span class="p">:</span> <span class="s">u&quot;Japanese&quot;</span><span class="p">,</span> <span class="s">&quot;name&quot;</span><span class="p">:</span> <span class="s">u&quot;</span><span class="se">\u65e5\u672c\u8a9e</span><span class="s">&quot;</span><span class="p">},</span>
+    <span class="s">&quot;ko_KR&quot;</span><span class="p">:</span> <span class="p">{</span><span class="s">&quot;name_en&quot;</span><span class="p">:</span> <span class="s">u&quot;Korean&quot;</span><span class="p">,</span> <span class="s">&quot;name&quot;</span><span class="p">:</span> <span class="s">u&quot;</span><span class="se">\ud55c\uad6d\uc5b4</span><span class="s">&quot;</span><span class="p">},</span>
+    <span class="s">&quot;lt_LT&quot;</span><span class="p">:</span> <span class="p">{</span><span class="s">&quot;name_en&quot;</span><span class="p">:</span> <span class="s">u&quot;Lithuanian&quot;</span><span class="p">,</span> <span class="s">&quot;name&quot;</span><span class="p">:</span> <span class="s">u&quot;Lietuvi</span><span class="se">\u0173</span><span class="s">&quot;</span><span class="p">},</span>
+    <span class="s">&quot;lv_LV&quot;</span><span class="p">:</span> <span class="p">{</span><span class="s">&quot;name_en&quot;</span><span class="p">:</span> <span class="s">u&quot;Latvian&quot;</span><span class="p">,</span> <span class="s">&quot;name&quot;</span><span class="p">:</span> <span class="s">u&quot;Latvie</span><span class="se">\u0161</span><span class="s">u&quot;</span><span class="p">},</span>
+    <span class="s">&quot;mk_MK&quot;</span><span class="p">:</span> <span class="p">{</span><span class="s">&quot;name_en&quot;</span><span class="p">:</span> <span class="s">u&quot;Macedonian&quot;</span><span class="p">,</span>
+    <span class="s">&quot;name&quot;</span><span class="p">:</span> <span class="s">u&quot;</span><span class="se">\u041c\u0430\u043a\u0435\u0434\u043e\u043d\u0441\u043a\u0438</span><span class="s">&quot;</span><span class="p">},</span>
+    <span class="s">&quot;ml_IN&quot;</span><span class="p">:</span> <span class="p">{</span><span class="s">&quot;name_en&quot;</span><span class="p">:</span> <span class="s">u&quot;Malayalam&quot;</span><span class="p">,</span>
+    <span class="s">&quot;name&quot;</span><span class="p">:</span> <span class="s">u&quot;</span><span class="se">\u0d2e\u0d32\u0d2f\u0d3e\u0d33\u0d02</span><span class="s">&quot;</span><span class="p">},</span>
+    <span class="s">&quot;ms_MY&quot;</span><span class="p">:</span> <span class="p">{</span><span class="s">&quot;name_en&quot;</span><span class="p">:</span> <span class="s">u&quot;Malay&quot;</span><span class="p">,</span> <span class="s">&quot;name&quot;</span><span class="p">:</span> <span class="s">u&quot;Bahasa Melayu&quot;</span><span class="p">},</span>
+    <span class="s">&quot;nb_NO&quot;</span><span class="p">:</span> <span class="p">{</span><span class="s">&quot;name_en&quot;</span><span class="p">:</span> <span class="s">u&quot;Norwegian (bokmal)&quot;</span><span class="p">,</span> <span class="s">&quot;name&quot;</span><span class="p">:</span> <span class="s">u&quot;Norsk (bokm</span><span class="se">\xe5</span><span class="s">l)&quot;</span><span class="p">},</span>
+    <span class="s">&quot;nl_NL&quot;</span><span class="p">:</span> <span class="p">{</span><span class="s">&quot;name_en&quot;</span><span class="p">:</span> <span class="s">u&quot;Dutch&quot;</span><span class="p">,</span> <span class="s">&quot;name&quot;</span><span class="p">:</span> <span class="s">u&quot;Nederlands&quot;</span><span class="p">},</span>
+    <span class="s">&quot;nn_NO&quot;</span><span class="p">:</span> <span class="p">{</span><span class="s">&quot;name_en&quot;</span><span class="p">:</span> <span class="s">u&quot;Norwegian (nynorsk)&quot;</span><span class="p">,</span> <span class="s">&quot;name&quot;</span><span class="p">:</span> <span class="s">u&quot;Norsk (nynorsk)&quot;</span><span class="p">},</span>
+    <span class="s">&quot;pa_IN&quot;</span><span class="p">:</span> <span class="p">{</span><span class="s">&quot;name_en&quot;</span><span class="p">:</span> <span class="s">u&quot;Punjabi&quot;</span><span class="p">,</span>
+    <span class="s">&quot;name&quot;</span><span class="p">:</span> <span class="s">u&quot;</span><span class="se">\u0a2a\u0a70\u0a1c\u0a3e\u0a2c\u0a40</span><span class="s">&quot;</span><span class="p">},</span>
+    <span class="s">&quot;pl_PL&quot;</span><span class="p">:</span> <span class="p">{</span><span class="s">&quot;name_en&quot;</span><span class="p">:</span> <span class="s">u&quot;Polish&quot;</span><span class="p">,</span> <span class="s">&quot;name&quot;</span><span class="p">:</span> <span class="s">u&quot;Polski&quot;</span><span class="p">},</span>
+    <span class="s">&quot;pt_BR&quot;</span><span class="p">:</span> <span class="p">{</span><span class="s">&quot;name_en&quot;</span><span class="p">:</span> <span class="s">u&quot;Portuguese (Brazil)&quot;</span><span class="p">,</span>
+    <span class="s">&quot;name&quot;</span><span class="p">:</span> <span class="s">u&quot;Portugu</span><span class="se">\xea</span><span class="s">s (Brasil)&quot;</span><span class="p">},</span>
+    <span class="s">&quot;pt_PT&quot;</span><span class="p">:</span> <span class="p">{</span><span class="s">&quot;name_en&quot;</span><span class="p">:</span> <span class="s">u&quot;Portuguese (Portugal)&quot;</span><span class="p">,</span>
+    <span class="s">&quot;name&quot;</span><span class="p">:</span> <span class="s">u&quot;Portugu</span><span class="se">\xea</span><span class="s">s (Portugal)&quot;</span><span class="p">},</span>
+    <span class="s">&quot;ro_RO&quot;</span><span class="p">:</span> <span class="p">{</span><span class="s">&quot;name_en&quot;</span><span class="p">:</span> <span class="s">u&quot;Romanian&quot;</span><span class="p">,</span> <span class="s">&quot;name&quot;</span><span class="p">:</span> <span class="s">u&quot;Rom</span><span class="se">\xe2</span><span class="s">n</span><span class="se">\u0103</span><span class="s">&quot;</span><span class="p">},</span>
+    <span class="s">&quot;ru_RU&quot;</span><span class="p">:</span> <span class="p">{</span><span class="s">&quot;name_en&quot;</span><span class="p">:</span> <span class="s">u&quot;Russian&quot;</span><span class="p">,</span>
+    <span class="s">&quot;name&quot;</span><span class="p">:</span> <span class="s">u&quot;</span><span class="se">\u0420\u0443\u0441\u0441\u043a\u0438\u0439</span><span class="s">&quot;</span><span class="p">},</span>
+    <span class="s">&quot;sk_SK&quot;</span><span class="p">:</span> <span class="p">{</span><span class="s">&quot;name_en&quot;</span><span class="p">:</span> <span class="s">u&quot;Slovak&quot;</span><span class="p">,</span> <span class="s">&quot;name&quot;</span><span class="p">:</span> <span class="s">u&quot;Sloven</span><span class="se">\u010d</span><span class="s">ina&quot;</span><span class="p">},</span>
+    <span class="s">&quot;sl_SI&quot;</span><span class="p">:</span> <span class="p">{</span><span class="s">&quot;name_en&quot;</span><span class="p">:</span> <span class="s">u&quot;Slovenian&quot;</span><span class="p">,</span> <span class="s">&quot;name&quot;</span><span class="p">:</span> <span class="s">u&quot;Sloven</span><span class="se">\u0161\u010d</span><span class="s">ina&quot;</span><span class="p">},</span>
+    <span class="s">&quot;sq_AL&quot;</span><span class="p">:</span> <span class="p">{</span><span class="s">&quot;name_en&quot;</span><span class="p">:</span> <span class="s">u&quot;Albanian&quot;</span><span class="p">,</span> <span class="s">&quot;name&quot;</span><span class="p">:</span> <span class="s">u&quot;Shqip&quot;</span><span class="p">},</span>
+    <span class="s">&quot;sr_RS&quot;</span><span class="p">:</span> <span class="p">{</span><span class="s">&quot;name_en&quot;</span><span class="p">:</span> <span class="s">u&quot;Serbian&quot;</span><span class="p">,</span>
+    <span class="s">&quot;name&quot;</span><span class="p">:</span> <span class="s">u&quot;</span><span class="se">\u0421\u0440\u043f\u0441\u043a\u0438</span><span class="s">&quot;</span><span class="p">},</span>
+    <span class="s">&quot;sv_SE&quot;</span><span class="p">:</span> <span class="p">{</span><span class="s">&quot;name_en&quot;</span><span class="p">:</span> <span class="s">u&quot;Swedish&quot;</span><span class="p">,</span> <span class="s">&quot;name&quot;</span><span class="p">:</span> <span class="s">u&quot;Svenska&quot;</span><span class="p">},</span>
+    <span class="s">&quot;sw_KE&quot;</span><span class="p">:</span> <span class="p">{</span><span class="s">&quot;name_en&quot;</span><span class="p">:</span> <span class="s">u&quot;Swahili&quot;</span><span class="p">,</span> <span class="s">&quot;name&quot;</span><span class="p">:</span> <span class="s">u&quot;Kiswahili&quot;</span><span class="p">},</span>
+    <span class="s">&quot;ta_IN&quot;</span><span class="p">:</span> <span class="p">{</span><span class="s">&quot;name_en&quot;</span><span class="p">:</span> <span class="s">u&quot;Tamil&quot;</span><span class="p">,</span>
+    <span class="s">&quot;name&quot;</span><span class="p">:</span> <span class="s">u&quot;</span><span class="se">\u0ba4\u0bae\u0bbf\u0bb4\u0bcd</span><span class="s">&quot;</span><span class="p">},</span>
+    <span class="s">&quot;te_IN&quot;</span><span class="p">:</span> <span class="p">{</span><span class="s">&quot;name_en&quot;</span><span class="p">:</span> <span class="s">u&quot;Telugu&quot;</span><span class="p">,</span>
+    <span class="s">&quot;name&quot;</span><span class="p">:</span> <span class="s">u&quot;</span><span class="se">\u0c24\u0c46\u0c32\u0c41\u0c17\u0c41</span><span class="s">&quot;</span><span class="p">},</span>
+    <span class="s">&quot;th_TH&quot;</span><span class="p">:</span> <span class="p">{</span><span class="s">&quot;name_en&quot;</span><span class="p">:</span> <span class="s">u&quot;Thai&quot;</span><span class="p">,</span>
+    <span class="s">&quot;name&quot;</span><span class="p">:</span> <span class="s">u&quot;</span><span class="se">\u0e20\u0e32\u0e29\u0e32\u0e44\u0e17\u0e22</span><span class="s">&quot;</span><span class="p">},</span>
+    <span class="s">&quot;tl_PH&quot;</span><span class="p">:</span> <span class="p">{</span><span class="s">&quot;name_en&quot;</span><span class="p">:</span> <span class="s">u&quot;Filipino&quot;</span><span class="p">,</span> <span class="s">&quot;name&quot;</span><span class="p">:</span> <span class="s">u&quot;Filipino&quot;</span><span class="p">},</span>
+    <span class="s">&quot;tr_TR&quot;</span><span class="p">:</span> <span class="p">{</span><span class="s">&quot;name_en&quot;</span><span class="p">:</span> <span class="s">u&quot;Turkish&quot;</span><span class="p">,</span> <span class="s">&quot;name&quot;</span><span class="p">:</span> <span class="s">u&quot;T</span><span class="se">\xfc</span><span class="s">rk</span><span class="se">\xe7</span><span class="s">e&quot;</span><span class="p">},</span>
+    <span class="s">&quot;uk_UA&quot;</span><span class="p">:</span> <span class="p">{</span><span class="s">&quot;name_en&quot;</span><span class="p">:</span> <span class="s">u&quot;Ukraini &quot;</span><span class="p">,</span>
+    <span class="s">&quot;name&quot;</span><span class="p">:</span> <span class="s">u&quot;</span><span class="se">\u0423\u043a\u0440\u0430\u0457\u043d\u0441\u044c\u043a\u0430</span><span class="s">&quot;</span><span class="p">},</span>
+    <span class="s">&quot;vi_VN&quot;</span><span class="p">:</span> <span class="p">{</span><span class="s">&quot;name_en&quot;</span><span class="p">:</span> <span class="s">u&quot;Vietnamese&quot;</span><span class="p">,</span> <span class="s">&quot;name&quot;</span><span class="p">:</span> <span class="s">u&quot;Ti</span><span class="se">\u1ebf</span><span class="s">ng Vi</span><span class="se">\u1ec7</span><span class="s">t&quot;</span><span class="p">},</span>
+    <span class="s">&quot;zh_CN&quot;</span><span class="p">:</span> <span class="p">{</span><span class="s">&quot;name_en&quot;</span><span class="p">:</span> <span class="s">u&quot;Chinese (Simplified)&quot;</span><span class="p">,</span>
+    <span class="s">&quot;name&quot;</span><span class="p">:</span> <span class="s">u&quot;</span><span class="se">\u4e2d\u6587</span><span class="s">(</span><span class="se">\u7b80\u4f53</span><span class="s">)&quot;</span><span class="p">},</span>
+    <span class="s">&quot;zh_TW&quot;</span><span class="p">:</span> <span class="p">{</span><span class="s">&quot;name_en&quot;</span><span class="p">:</span> <span class="s">u&quot;Chinese (Traditional)&quot;</span><span class="p">,</span>
+    <span class="s">&quot;name&quot;</span><span class="p">:</span> <span class="s">u&quot;</span><span class="se">\u4e2d\u6587</span><span class="s">(</span><span class="se">\u7e41\u9ad4</span><span class="s">)&quot;</span><span class="p">},</span>
+<span class="p">}</span>
+</pre></div>
+
+          </div>
+        </div>
+      </div>
+      <div class="sphinxsidebar">
+        <div class="sphinxsidebarwrapper">
+<div id="searchbox" style="display: none">
+  <h3>Quick search</h3>
+    <form class="search" action="../../search.html" method="get">
+      <input type="text" name="q" />
+      <input type="submit" value="Go" />
+      <input type="hidden" name="check_keywords" value="yes" />
+      <input type="hidden" name="area" value="default" />
+    </form>
+    <p class="searchtip" style="font-size: 90%">
+    Enter search terms or a module, class or function name.
+    </p>
+</div>
+<script type="text/javascript">$('#searchbox').show(0);</script>
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="related">
+      <h3>Navigation</h3>
+      <ul>
+        <li class="right" style="margin-right: 10px">
+          <a href="../../genindex.html" title="General Index"
+             >index</a></li>
+        <li class="right" >
+          <a href="../../py-modindex.html" title="Python Module Index"
+             >modules</a> |</li>
+        <li><a href="../../index.html">cyclone git-2013042301 documentation</a> &raquo;</li>
+          <li><a href="../index.html" >Module code</a> &raquo;</li> 
+      </ul>
+    </div>
+    <div class="footer">
+        &copy; Copyright 2013, Alexandre Fiori.
+      Created using <a href="http://sphinx.pocoo.org/">Sphinx</a> 1.1.3.
+    </div>
+  </body>
+</html>

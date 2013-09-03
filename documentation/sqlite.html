@@ -1,0 +1,198 @@
+
+
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"
+  "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+
+
+<html xmlns="http://www.w3.org/1999/xhtml">
+  <head>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+    
+    <title>cyclone.sqlite — Inline SQLite &mdash; cyclone git-2013042301 documentation</title>
+    
+    <link rel="stylesheet" href="_static/sphinx.css" type="text/css" />
+    <link rel="stylesheet" href="_static/pygments.css" type="text/css" />
+    
+    <script type="text/javascript">
+      var DOCUMENTATION_OPTIONS = {
+        URL_ROOT:    '',
+        VERSION:     'git-2013042301',
+        COLLAPSE_INDEX: false,
+        FILE_SUFFIX: '.html',
+        HAS_SOURCE:  true
+      };
+    </script>
+    <script type="text/javascript" src="_static/jquery.js"></script>
+    <script type="text/javascript" src="_static/underscore.js"></script>
+    <script type="text/javascript" src="_static/doctools.js"></script>
+    <link rel="top" title="cyclone git-2013042301 documentation" href="index.html" />
+    <link rel="up" title="Core web framework" href="webframework.html" />
+    <link rel="next" title="Asynchronous networking" href="networking.html" />
+    <link rel="prev" title="cyclone.bottle — Bottle application style" href="bottle.html" /> 
+  </head>
+  <body>
+    <div class="related">
+      <h3>Navigation</h3>
+      <ul>
+        <li class="right" style="margin-right: 10px">
+          <a href="genindex.html" title="General Index"
+             accesskey="I">index</a></li>
+        <li class="right" >
+          <a href="py-modindex.html" title="Python Module Index"
+             >modules</a> |</li>
+        <li class="right" >
+          <a href="networking.html" title="Asynchronous networking"
+             accesskey="N">next</a> |</li>
+        <li class="right" >
+          <a href="bottle.html" title="cyclone.bottle — Bottle application style"
+             accesskey="P">previous</a> |</li>
+        <li><a href="index.html">cyclone git-2013042301 documentation</a> &raquo;</li>
+          <li><a href="webframework.html" accesskey="U">Core web framework</a> &raquo;</li> 
+      </ul>
+    </div>  
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          <div class="body">
+            
+  <div class="section" id="module-cyclone.sqlite">
+<span id="cyclone-sqlite-inline-sqlite"></span><h1><tt class="docutils literal"><span class="pre">cyclone.sqlite</span></tt> &#8212; Inline SQLite<a class="headerlink" href="#module-cyclone.sqlite" title="Permalink to this headline">¶</a></h1>
+<p>An inline SQLite helper class.</p>
+<p>All queries run inline, temporarily blocking the execution. Please make sure
+you understand the limitations of using SQLite like this.</p>
+<p>Example:</p>
+<div class="highlight-none"><div class="highlight"><pre>import cyclone.web
+import cyclone.sqlite
+
+class SQLiteMixin(object):
+    sqlite = cyclone.sqlite.InlineSQLite(&quot;mydb.sqlite&quot;)
+
+class MyRequestHandler(cyclone.web.RequestHandler):
+    def get(self):
+        rs = self.sqlite.runQuery(&quot;SELECT 1&quot;)
+        ...
+</pre></div>
+</div>
+<p>There is no <tt class="docutils literal"><span class="pre">Deferred</span></tt> responses, and no need to <tt class="docutils literal"><span class="pre">yield</span></tt> anything.</p>
+<dl class="class">
+<dt id="cyclone.sqlite.InlineSQLite">
+<em class="property">class </em><tt class="descclassname">cyclone.sqlite.</tt><tt class="descname">InlineSQLite</tt><big>(</big><em>dbname=':memory:'</em>, <em>autoCommit=True</em><big>)</big><a class="reference internal" href="_modules/cyclone/sqlite.html#InlineSQLite"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#cyclone.sqlite.InlineSQLite" title="Permalink to this definition">¶</a></dt>
+<dd><p>An inline SQLite instance</p>
+<p>Create new SQLite instance.</p>
+<dl class="method">
+<dt id="cyclone.sqlite.InlineSQLite.runQuery">
+<tt class="descname">runQuery</tt><big>(</big><em>query</em>, <em>*args</em>, <em>**kwargs</em><big>)</big><a class="reference internal" href="_modules/cyclone/sqlite.html#InlineSQLite.runQuery"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#cyclone.sqlite.InlineSQLite.runQuery" title="Permalink to this definition">¶</a></dt>
+<dd><p>Use this function to execute queries that return a result set,
+like <tt class="docutils literal"><span class="pre">SELECT</span></tt>.</p>
+<p>Example (with variable substitution):</p>
+<div class="highlight-none"><div class="highlight"><pre>sqlite.runQuery(&quot;SELECT * FROM asd WHERE x=? and y=?&quot;, [x, y])
+</pre></div>
+</div>
+</dd></dl>
+
+<dl class="method">
+<dt id="cyclone.sqlite.InlineSQLite.runOperation">
+<tt class="descname">runOperation</tt><big>(</big><em>command</em>, <em>*args</em>, <em>**kwargs</em><big>)</big><a class="reference internal" href="_modules/cyclone/sqlite.html#InlineSQLite.runOperation"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#cyclone.sqlite.InlineSQLite.runOperation" title="Permalink to this definition">¶</a></dt>
+<dd><p>Use this function to execute queries that do NOT return a result
+set, like <tt class="docutils literal"><span class="pre">INSERT</span></tt>, <tt class="docutils literal"><span class="pre">UPDATE</span></tt> and <tt class="docutils literal"><span class="pre">DELETE</span></tt>.</p>
+<p>Example:</p>
+<div class="highlight-none"><div class="highlight"><pre>sqlite.runOperation(&quot;CREATE TABLE asd (x int, y text)&quot;)
+sqlite.runOperation(&quot;INSERT INTO asd VALUES (?, ?)&quot;, [x, y])
+</pre></div>
+</div>
+</dd></dl>
+
+<dl class="method">
+<dt id="cyclone.sqlite.InlineSQLite.runOperationMany">
+<tt class="descname">runOperationMany</tt><big>(</big><em>command</em>, <em>*args</em>, <em>**kwargs</em><big>)</big><a class="reference internal" href="_modules/cyclone/sqlite.html#InlineSQLite.runOperationMany"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#cyclone.sqlite.InlineSQLite.runOperationMany" title="Permalink to this definition">¶</a></dt>
+<dd><p>Same as <a class="reference internal" href="#cyclone.sqlite.InlineSQLite.runOperation" title="cyclone.sqlite.InlineSQLite.runOperation"><tt class="xref py py-obj docutils literal"><span class="pre">runOperation</span></tt></a>, but for multiple rows.</p>
+<p>Example:</p>
+<div class="highlight-none"><div class="highlight"><pre>sqlite.runOperationMany(&quot;INSERT INTO asd VALUES (?, ?)&quot;, [
+                            [x1, y1], [x2, y2], [x3, y3]
+                        ])
+</pre></div>
+</div>
+</dd></dl>
+
+<dl class="method">
+<dt id="cyclone.sqlite.InlineSQLite.commit">
+<tt class="descname">commit</tt><big>(</big><big>)</big><a class="reference internal" href="_modules/cyclone/sqlite.html#InlineSQLite.commit"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#cyclone.sqlite.InlineSQLite.commit" title="Permalink to this definition">¶</a></dt>
+<dd><p>Commits pending transactions</p>
+</dd></dl>
+
+<dl class="method">
+<dt id="cyclone.sqlite.InlineSQLite.rollback">
+<tt class="descname">rollback</tt><big>(</big><big>)</big><a class="reference internal" href="_modules/cyclone/sqlite.html#InlineSQLite.rollback"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#cyclone.sqlite.InlineSQLite.rollback" title="Permalink to this definition">¶</a></dt>
+<dd><p>Gives up pending transactions</p>
+</dd></dl>
+
+<dl class="method">
+<dt id="cyclone.sqlite.InlineSQLite.close">
+<tt class="descname">close</tt><big>(</big><big>)</big><a class="reference internal" href="_modules/cyclone/sqlite.html#InlineSQLite.close"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#cyclone.sqlite.InlineSQLite.close" title="Permalink to this definition">¶</a></dt>
+<dd><p>Destroys the instance</p>
+</dd></dl>
+
+</dd></dl>
+
+</div>
+
+
+          </div>
+        </div>
+      </div>
+      <div class="sphinxsidebar">
+        <div class="sphinxsidebarwrapper">
+  <h4>Previous topic</h4>
+  <p class="topless"><a href="bottle.html"
+                        title="previous chapter"><tt class="docutils literal docutils literal docutils literal"><span class="pre">cyclone.bottle</span></tt> &#8212; Bottle application style</a></p>
+  <h4>Next topic</h4>
+  <p class="topless"><a href="networking.html"
+                        title="next chapter">Asynchronous networking</a></p>
+  <h3>This Page</h3>
+  <ul class="this-page-menu">
+    <li><a href="_sources/sqlite.txt"
+           rel="nofollow">Show Source</a></li>
+  </ul>
+<div id="searchbox" style="display: none">
+  <h3>Quick search</h3>
+    <form class="search" action="search.html" method="get">
+      <input type="text" name="q" />
+      <input type="submit" value="Go" />
+      <input type="hidden" name="check_keywords" value="yes" />
+      <input type="hidden" name="area" value="default" />
+    </form>
+    <p class="searchtip" style="font-size: 90%">
+    Enter search terms or a module, class or function name.
+    </p>
+</div>
+<script type="text/javascript">$('#searchbox').show(0);</script>
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="related">
+      <h3>Navigation</h3>
+      <ul>
+        <li class="right" style="margin-right: 10px">
+          <a href="genindex.html" title="General Index"
+             >index</a></li>
+        <li class="right" >
+          <a href="py-modindex.html" title="Python Module Index"
+             >modules</a> |</li>
+        <li class="right" >
+          <a href="networking.html" title="Asynchronous networking"
+             >next</a> |</li>
+        <li class="right" >
+          <a href="bottle.html" title="cyclone.bottle — Bottle application style"
+             >previous</a> |</li>
+        <li><a href="index.html">cyclone git-2013042301 documentation</a> &raquo;</li>
+          <li><a href="webframework.html" >Core web framework</a> &raquo;</li> 
+      </ul>
+    </div>
+    <div class="footer">
+        &copy; Copyright 2013, Alexandre Fiori.
+      Created using <a href="http://sphinx.pocoo.org/">Sphinx</a> 1.1.3.
+    </div>
+  </body>
+</html>

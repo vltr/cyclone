@@ -1,0 +1,164 @@
+
+
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"
+  "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+
+
+<html xmlns="http://www.w3.org/1999/xhtml">
+  <head>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+    
+    <title>Database connections &mdash; cyclone git-2013042301 documentation</title>
+    
+    <link rel="stylesheet" href="_static/sphinx.css" type="text/css" />
+    <link rel="stylesheet" href="_static/pygments.css" type="text/css" />
+    
+    <script type="text/javascript">
+      var DOCUMENTATION_OPTIONS = {
+        URL_ROOT:    '',
+        VERSION:     'git-2013042301',
+        COLLAPSE_INDEX: false,
+        FILE_SUFFIX: '.html',
+        HAS_SOURCE:  true
+      };
+    </script>
+    <script type="text/javascript" src="_static/jquery.js"></script>
+    <script type="text/javascript" src="_static/underscore.js"></script>
+    <script type="text/javascript" src="_static/doctools.js"></script>
+    <link rel="top" title="cyclone git-2013042301 documentation" href="index.html" />
+    <link rel="up" title="Integration with other services" href="integration.html" />
+    <link rel="next" title="cyclone.auth — Third-party login with OpenID and OAuth" href="auth.html" />
+    <link rel="prev" title="Integration with other services" href="integration.html" /> 
+  </head>
+  <body>
+    <div class="related">
+      <h3>Navigation</h3>
+      <ul>
+        <li class="right" style="margin-right: 10px">
+          <a href="genindex.html" title="General Index"
+             accesskey="I">index</a></li>
+        <li class="right" >
+          <a href="py-modindex.html" title="Python Module Index"
+             >modules</a> |</li>
+        <li class="right" >
+          <a href="auth.html" title="cyclone.auth — Third-party login with OpenID and OAuth"
+             accesskey="N">next</a> |</li>
+        <li class="right" >
+          <a href="integration.html" title="Integration with other services"
+             accesskey="P">previous</a> |</li>
+        <li><a href="index.html">cyclone git-2013042301 documentation</a> &raquo;</li>
+          <li><a href="integration.html" accesskey="U">Integration with other services</a> &raquo;</li> 
+      </ul>
+    </div>  
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          <div class="body">
+            
+  <div class="section" id="database-connections">
+<h1>Database connections<a class="headerlink" href="#database-connections" title="Permalink to this headline">¶</a></h1>
+<p>Cyclone supports a number of different databases, from RDBMs to NoSQL:</p>
+<ul class="simple">
+<li>Built-in SQLite: <a class="reference internal" href="sqlite.html#module-cyclone.sqlite" title="cyclone.sqlite"><tt class="xref py py-obj docutils literal"><span class="pre">cyclone.sqlite</span></tt></a></li>
+<li>Built-in Redis: <tt class="xref py py-obj docutils literal"><span class="pre">cyclone.redis</span></tt></li>
+<li>RDBMs like MySQL and PostgreSQL: <a class="reference external" href="http://twistedmatrix.com/documents/current/core/howto/rdbms.html">twisted.enterprise.adbapi</a></li>
+<li>MongoDB: <a class="reference external" href="https://github.com/fiorix/mongo-async-python-driver">txmongo</a></li>
+</ul>
+<p>Here is an example of a server with both Redis and MySQL:</p>
+<div class="highlight-none"><div class="highlight"><pre>import MySQLdb
+import functools
+import cyclone.redis
+from twisted.internet import defer
+from twisted.python import log
+from twisted.enterprise import adbapi
+
+def dbsafe(method):
+    @defer.inlineCallbacks
+    @functools.wraps(method)
+    def wrapper(self, *args, **kwargs):
+        try:
+            result = yield defer.maybeDeferred(method, self, *args, **kwargs)
+        except MySQLdb.OperationalError, e:
+            log.msg(&quot;MySQL error: &quot; + str(e))
+        except cyclone.redis.RedisError, e:
+            log.msg(&quot;Redis error: &quot; + str(e))
+        else:
+            defer.returnValue(result)
+        raise web.HTTPError(503)  # Service Unavailable
+    return wrapper
+
+class DatabaseMixin(object):
+    redis = cyclone.redis.lazyConnectionPool()
+    mysql = adbapi.ConnectionPool(&quot;MySQLdb&quot;, db=&quot;dummy&quot;)
+
+class MainHandler(web.RequestHandler, DatabaseMixin):
+    @dbsafe
+    @defer.inlineCallbacks
+    def get(self):
+        rs1 = yield self.mysql.runQuery(&quot;SELECT 1&quot;)
+        rs2 = yield self.redis.get(&quot;foo&quot;)
+        ...
+</pre></div>
+</div>
+</div>
+
+
+          </div>
+        </div>
+      </div>
+      <div class="sphinxsidebar">
+        <div class="sphinxsidebarwrapper">
+  <h4>Previous topic</h4>
+  <p class="topless"><a href="integration.html"
+                        title="previous chapter">Integration with other services</a></p>
+  <h4>Next topic</h4>
+  <p class="topless"><a href="auth.html"
+                        title="next chapter"><tt class="docutils literal docutils literal"><span class="pre">cyclone.auth</span></tt> &#8212; Third-party login with OpenID and OAuth</a></p>
+  <h3>This Page</h3>
+  <ul class="this-page-menu">
+    <li><a href="_sources/databases.txt"
+           rel="nofollow">Show Source</a></li>
+  </ul>
+<div id="searchbox" style="display: none">
+  <h3>Quick search</h3>
+    <form class="search" action="search.html" method="get">
+      <input type="text" name="q" />
+      <input type="submit" value="Go" />
+      <input type="hidden" name="check_keywords" value="yes" />
+      <input type="hidden" name="area" value="default" />
+    </form>
+    <p class="searchtip" style="font-size: 90%">
+    Enter search terms or a module, class or function name.
+    </p>
+</div>
+<script type="text/javascript">$('#searchbox').show(0);</script>
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="related">
+      <h3>Navigation</h3>
+      <ul>
+        <li class="right" style="margin-right: 10px">
+          <a href="genindex.html" title="General Index"
+             >index</a></li>
+        <li class="right" >
+          <a href="py-modindex.html" title="Python Module Index"
+             >modules</a> |</li>
+        <li class="right" >
+          <a href="auth.html" title="cyclone.auth — Third-party login with OpenID and OAuth"
+             >next</a> |</li>
+        <li class="right" >
+          <a href="integration.html" title="Integration with other services"
+             >previous</a> |</li>
+        <li><a href="index.html">cyclone git-2013042301 documentation</a> &raquo;</li>
+          <li><a href="integration.html" >Integration with other services</a> &raquo;</li> 
+      </ul>
+    </div>
+    <div class="footer">
+        &copy; Copyright 2013, Alexandre Fiori.
+      Created using <a href="http://sphinx.pocoo.org/">Sphinx</a> 1.1.3.
+    </div>
+  </body>
+</html>

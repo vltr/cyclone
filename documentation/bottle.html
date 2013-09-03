@@ -1,0 +1,178 @@
+
+
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"
+  "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+
+
+<html xmlns="http://www.w3.org/1999/xhtml">
+  <head>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+    
+    <title>cyclone.bottle — Bottle application style &mdash; cyclone git-2013042301 documentation</title>
+    
+    <link rel="stylesheet" href="_static/sphinx.css" type="text/css" />
+    <link rel="stylesheet" href="_static/pygments.css" type="text/css" />
+    
+    <script type="text/javascript">
+      var DOCUMENTATION_OPTIONS = {
+        URL_ROOT:    '',
+        VERSION:     'git-2013042301',
+        COLLAPSE_INDEX: false,
+        FILE_SUFFIX: '.html',
+        HAS_SOURCE:  true
+      };
+    </script>
+    <script type="text/javascript" src="_static/jquery.js"></script>
+    <script type="text/javascript" src="_static/underscore.js"></script>
+    <script type="text/javascript" src="_static/doctools.js"></script>
+    <link rel="top" title="cyclone git-2013042301 documentation" href="index.html" />
+    <link rel="up" title="Core web framework" href="webframework.html" />
+    <link rel="next" title="cyclone.sqlite — Inline SQLite" href="sqlite.html" />
+    <link rel="prev" title="cyclone.locale — Internationalization support" href="locale.html" /> 
+  </head>
+  <body>
+    <div class="related">
+      <h3>Navigation</h3>
+      <ul>
+        <li class="right" style="margin-right: 10px">
+          <a href="genindex.html" title="General Index"
+             accesskey="I">index</a></li>
+        <li class="right" >
+          <a href="py-modindex.html" title="Python Module Index"
+             >modules</a> |</li>
+        <li class="right" >
+          <a href="sqlite.html" title="cyclone.sqlite — Inline SQLite"
+             accesskey="N">next</a> |</li>
+        <li class="right" >
+          <a href="locale.html" title="cyclone.locale — Internationalization support"
+             accesskey="P">previous</a> |</li>
+        <li><a href="index.html">cyclone git-2013042301 documentation</a> &raquo;</li>
+          <li><a href="webframework.html" accesskey="U">Core web framework</a> &raquo;</li> 
+      </ul>
+    </div>  
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          <div class="body">
+            
+  <div class="section" id="module-cyclone.bottle">
+<span id="cyclone-bottle-bottle-application-style"></span><h1><tt class="docutils literal"><span class="pre">cyclone.bottle</span></tt> &#8212; Bottle application style<a class="headerlink" href="#module-cyclone.bottle" title="Permalink to this headline">¶</a></h1>
+<p>Support for Bootle application style.</p>
+<p><a class="reference external" href="http://bottlepy.com">http://bottlepy.com</a></p>
+<p>For more information see the bottle demo:
+<a class="reference external" href="https://github.com/fiorix/cyclone/tree/master/demos/bottle">https://github.com/fiorix/cyclone/tree/master/demos/bottle</a></p>
+<dl class="function">
+<dt id="cyclone.bottle.route">
+<tt class="descclassname">cyclone.bottle.</tt><tt class="descname">route</tt><big>(</big><em>path=None</em>, <em>method='GET'</em>, <em>callback=None</em>, <em>**kwargs</em><big>)</big><a class="reference internal" href="_modules/cyclone/bottle.html#route"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#cyclone.bottle.route" title="Permalink to this definition">¶</a></dt>
+<dd><p>Use this decorator to route requests to the handler.</p>
+<p>Example:</p>
+<div class="highlight-none"><div class="highlight"><pre>@route(&quot;/&quot;)
+def index(cli):
+    cli.write(&quot;Hello, world&quot;)
+
+@route(&quot;/foobar&quot;, method=&quot;post&quot;)
+def whatever(cli):
+    ...
+</pre></div>
+</div>
+<p>Set method to &#8220;ANY&#8221; to have the route be called on method.:</p>
+<div class="highlight-none"><div class="highlight"><pre>@route(&quot;/foobar&quot;, method=&quot;any&quot;)
+def all_routes(cli):
+    ...
+</pre></div>
+</div>
+</dd></dl>
+
+<dl class="function">
+<dt id="cyclone.bottle.create_app">
+<tt class="descclassname">cyclone.bottle.</tt><tt class="descname">create_app</tt><big>(</big><em>**settings</em><big>)</big><a class="reference internal" href="_modules/cyclone/bottle.html#create_app"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#cyclone.bottle.create_app" title="Permalink to this definition">¶</a></dt>
+<dd><p>Return an application which will serve the bottle-defined routes.</p>
+<p>Parameters:</p>
+<dl class="docutils">
+<dt>base_handler: The class or factory for request handlers. The default</dt>
+<dd>is cyclone.web.RequestHandler.</dd>
+</dl>
+<p>more_handlers: A regular list of tuples containing regex -&gt; handler</p>
+<p>All other parameters are passed directly to the <a class="reference internal" href="web.html#cyclone.web.Application" title="cyclone.web.Application"><tt class="xref py py-obj docutils literal"><span class="pre">cyclone.web.Application</span></tt></a>
+constructor.</p>
+</dd></dl>
+
+<dl class="function">
+<dt id="cyclone.bottle.run">
+<tt class="descclassname">cyclone.bottle.</tt><tt class="descname">run</tt><big>(</big><em>**settings</em><big>)</big><a class="reference internal" href="_modules/cyclone/bottle.html#run"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#cyclone.bottle.run" title="Permalink to this definition">¶</a></dt>
+<dd><p>Start the application.</p>
+<p>Parameters:</p>
+<p>host: Interface to listen on. [default: 0.0.0.0]</p>
+<p>port: TCP port to listen on. [default: 8888]</p>
+<p>log: The log file to use, the default is sys.stdout.</p>
+<dl class="docutils">
+<dt>base_handler: The class or factory for request handlers. The default</dt>
+<dd>is cyclone.web.RequestHandler.</dd>
+</dl>
+<p>more_handlers: A regular list of tuples containing regex -&gt; handler</p>
+<p>All other parameters are passed directly to the <a class="reference internal" href="web.html#cyclone.web.Application" title="cyclone.web.Application"><tt class="xref py py-obj docutils literal"><span class="pre">cyclone.web.Application</span></tt></a>
+constructor.</p>
+</dd></dl>
+
+</div>
+
+
+          </div>
+        </div>
+      </div>
+      <div class="sphinxsidebar">
+        <div class="sphinxsidebarwrapper">
+  <h4>Previous topic</h4>
+  <p class="topless"><a href="locale.html"
+                        title="previous chapter"><tt class="docutils literal"><span class="pre">cyclone.locale</span></tt> &#8212; Internationalization support</a></p>
+  <h4>Next topic</h4>
+  <p class="topless"><a href="sqlite.html"
+                        title="next chapter"><tt class="docutils literal"><span class="pre">cyclone.sqlite</span></tt> &#8212; Inline SQLite</a></p>
+  <h3>This Page</h3>
+  <ul class="this-page-menu">
+    <li><a href="_sources/bottle.txt"
+           rel="nofollow">Show Source</a></li>
+  </ul>
+<div id="searchbox" style="display: none">
+  <h3>Quick search</h3>
+    <form class="search" action="search.html" method="get">
+      <input type="text" name="q" />
+      <input type="submit" value="Go" />
+      <input type="hidden" name="check_keywords" value="yes" />
+      <input type="hidden" name="area" value="default" />
+    </form>
+    <p class="searchtip" style="font-size: 90%">
+    Enter search terms or a module, class or function name.
+    </p>
+</div>
+<script type="text/javascript">$('#searchbox').show(0);</script>
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="related">
+      <h3>Navigation</h3>
+      <ul>
+        <li class="right" style="margin-right: 10px">
+          <a href="genindex.html" title="General Index"
+             >index</a></li>
+        <li class="right" >
+          <a href="py-modindex.html" title="Python Module Index"
+             >modules</a> |</li>
+        <li class="right" >
+          <a href="sqlite.html" title="cyclone.sqlite — Inline SQLite"
+             >next</a> |</li>
+        <li class="right" >
+          <a href="locale.html" title="cyclone.locale — Internationalization support"
+             >previous</a> |</li>
+        <li><a href="index.html">cyclone git-2013042301 documentation</a> &raquo;</li>
+          <li><a href="webframework.html" >Core web framework</a> &raquo;</li> 
+      </ul>
+    </div>
+    <div class="footer">
+        &copy; Copyright 2013, Alexandre Fiori.
+      Created using <a href="http://sphinx.pocoo.org/">Sphinx</a> 1.1.3.
+    </div>
+  </body>
+</html>

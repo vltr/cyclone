@@ -1,0 +1,606 @@
+
+
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"
+  "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+
+
+<html xmlns="http://www.w3.org/1999/xhtml">
+  <head>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+    
+    <title>cyclone.websocket &mdash; cyclone git-2013042301 documentation</title>
+    
+    <link rel="stylesheet" href="../../_static/sphinx.css" type="text/css" />
+    <link rel="stylesheet" href="../../_static/pygments.css" type="text/css" />
+    
+    <script type="text/javascript">
+      var DOCUMENTATION_OPTIONS = {
+        URL_ROOT:    '../../',
+        VERSION:     'git-2013042301',
+        COLLAPSE_INDEX: false,
+        FILE_SUFFIX: '.html',
+        HAS_SOURCE:  true
+      };
+    </script>
+    <script type="text/javascript" src="../../_static/jquery.js"></script>
+    <script type="text/javascript" src="../../_static/underscore.js"></script>
+    <script type="text/javascript" src="../../_static/doctools.js"></script>
+    <link rel="top" title="cyclone git-2013042301 documentation" href="../../index.html" />
+    <link rel="up" title="Module code" href="../index.html" /> 
+  </head>
+  <body>
+    <div class="related">
+      <h3>Navigation</h3>
+      <ul>
+        <li class="right" style="margin-right: 10px">
+          <a href="../../genindex.html" title="General Index"
+             accesskey="I">index</a></li>
+        <li class="right" >
+          <a href="../../py-modindex.html" title="Python Module Index"
+             >modules</a> |</li>
+        <li><a href="../../index.html">cyclone git-2013042301 documentation</a> &raquo;</li>
+          <li><a href="../index.html" accesskey="U">Module code</a> &raquo;</li> 
+      </ul>
+    </div>  
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          <div class="body">
+            
+  <h1>Source code for cyclone.websocket</h1><div class="highlight"><pre>
+<span class="c"># coding: utf-8</span>
+<span class="c">#</span>
+<span class="c"># Copyright 2010 Alexandre Fiori</span>
+<span class="c"># based on the original Tornado by Facebook</span>
+<span class="c">#</span>
+<span class="c"># Licensed under the Apache License, Version 2.0 (the &quot;License&quot;); you may</span>
+<span class="c"># not use this file except in compliance with the License. You may obtain</span>
+<span class="c"># a copy of the License at</span>
+<span class="c">#</span>
+<span class="c">#     http://www.apache.org/licenses/LICENSE-2.0</span>
+<span class="c">#</span>
+<span class="c"># Unless required by applicable law or agreed to in writing, software</span>
+<span class="c"># distributed under the License is distributed on an &quot;AS IS&quot; BASIS, WITHOUT</span>
+<span class="c"># WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the</span>
+<span class="c"># License for the specific language governing permissions and limitations</span>
+<span class="c"># under the License.</span>
+
+<span class="sd">&quot;&quot;&quot;Server-side implementation of the WebSocket protocol.</span>
+
+<span class="sd">`WebSocket &lt;http://en.wikipedia.org/wiki/WebSocket&gt;`_  is a web technology</span>
+<span class="sd">providing full-duplex communications channels over a single TCP connection.</span>
+
+<span class="sd">For more information, check out the `WebSocket demos</span>
+<span class="sd">&lt;https://github.com/fiorix/cyclone/tree/master/demos/websocket&gt;`_.</span>
+<span class="sd">&quot;&quot;&quot;</span>
+<span class="kn">import</span> <span class="nn">base64</span>
+<span class="kn">import</span> <span class="nn">functools</span>
+<span class="kn">import</span> <span class="nn">hashlib</span>
+<span class="kn">import</span> <span class="nn">struct</span>
+
+<span class="kn">import</span> <span class="nn">cyclone</span>
+<span class="kn">import</span> <span class="nn">cyclone.web</span>
+<span class="kn">import</span> <span class="nn">cyclone.escape</span>
+
+<span class="kn">from</span> <span class="nn">twisted.python</span> <span class="kn">import</span> <span class="n">log</span>
+
+
+<span class="k">class</span> <span class="nc">_NotEnoughFrame</span><span class="p">(</span><span class="ne">Exception</span><span class="p">):</span>
+    <span class="k">pass</span>
+
+
+<div class="viewcode-block" id="WebSocketHandler"><a class="viewcode-back" href="../../websocket.html#cyclone.websocket.WebSocketHandler">[docs]</a><span class="k">class</span> <span class="nc">WebSocketHandler</span><span class="p">(</span><span class="n">cyclone</span><span class="o">.</span><span class="n">web</span><span class="o">.</span><span class="n">RequestHandler</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;Subclass this class to create a basic WebSocket handler.</span>
+
+<span class="sd">    Override messageReceived to handle incoming messages.</span>
+
+<span class="sd">    See http://dev.w3.org/html5/websockets/ for details on the</span>
+<span class="sd">    JavaScript interface.  The protocol is specified at</span>
+<span class="sd">    http://tools.ietf.org/html/rfc6455.</span>
+
+<span class="sd">    Here is an example Web Socket handler that echos back all received messages</span>
+<span class="sd">    back to the client::</span>
+
+<span class="sd">      class EchoWebSocket(websocket.WebSocketHandler):</span>
+<span class="sd">          def connectionMade(self):</span>
+<span class="sd">              print &quot;WebSocket connected&quot;</span>
+
+<span class="sd">          def messageReceived(self, message):</span>
+<span class="sd">              self.sendMessage(u&quot;You said: &quot; + message)</span>
+
+<span class="sd">          def connectionLost(self, reason):</span>
+<span class="sd">              print &quot;WebSocket disconnected&quot;</span>
+
+<span class="sd">    Web Sockets are not standard HTTP connections. The &quot;handshake&quot; is HTTP,</span>
+<span class="sd">    but after the handshake, the protocol is message-based. Consequently,</span>
+<span class="sd">    most of the Cyclone HTTP facilities are not available in handlers of this</span>
+<span class="sd">    type. The only communication methods available to you is sendMessage().</span>
+
+<span class="sd">    If you map the handler above to &quot;/websocket&quot; in your application, you can</span>
+<span class="sd">    invoke it in JavaScript with::</span>
+
+<span class="sd">      var ws = new WebSocket(&quot;ws://localhost:8888/websocket&quot;);</span>
+<span class="sd">      ws.onopen = function() {</span>
+<span class="sd">         ws.send(&quot;Hello, world&quot;);</span>
+<span class="sd">      };</span>
+<span class="sd">      ws.onmessage = function (evt) {</span>
+<span class="sd">         alert(evt.data);</span>
+<span class="sd">      };</span>
+
+<span class="sd">    This script pops up an alert box that says &quot;You said: Hello, world&quot;.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">application</span><span class="p">,</span> <span class="n">request</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">):</span>
+        <span class="n">cyclone</span><span class="o">.</span><span class="n">web</span><span class="o">.</span><span class="n">RequestHandler</span><span class="o">.</span><span class="n">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">application</span><span class="p">,</span> <span class="n">request</span><span class="p">,</span>
+                                            <span class="o">**</span><span class="n">kwargs</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">application</span> <span class="o">=</span> <span class="n">application</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">request</span> <span class="o">=</span> <span class="n">request</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">transport</span> <span class="o">=</span> <span class="n">request</span><span class="o">.</span><span class="n">connection</span><span class="o">.</span><span class="n">transport</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">ws_protocol</span> <span class="o">=</span> <span class="bp">None</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">notifyFinish</span><span class="p">()</span><span class="o">.</span><span class="n">addCallback</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">connectionLost</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">headersReceived</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">pass</span>
+
+    <span class="k">def</span> <span class="nf">connectionMade</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">):</span>
+        <span class="k">pass</span>
+
+    <span class="k">def</span> <span class="nf">connectionLost</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">reason</span><span class="p">):</span>
+        <span class="k">pass</span>
+
+<div class="viewcode-block" id="WebSocketHandler.messageReceived"><a class="viewcode-back" href="../../websocket.html#cyclone.websocket.WebSocketHandler.messageReceived">[docs]</a>    <span class="k">def</span> <span class="nf">messageReceived</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">message</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Gets called when a message is received from the peer.&quot;&quot;&quot;</span>
+        <span class="k">pass</span>
+</div>
+<div class="viewcode-block" id="WebSocketHandler.sendMessage"><a class="viewcode-back" href="../../websocket.html#cyclone.websocket.WebSocketHandler.sendMessage">[docs]</a>    <span class="k">def</span> <span class="nf">sendMessage</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">message</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;Sends the given message to the client of this Web Socket.</span>
+
+<span class="sd">        The message may be either a string or a dict (which will be</span>
+<span class="sd">        encoded as json).</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">message</span><span class="p">,</span> <span class="nb">dict</span><span class="p">):</span>
+            <span class="n">message</span> <span class="o">=</span> <span class="n">cyclone</span><span class="o">.</span><span class="n">escape</span><span class="o">.</span><span class="n">json_encode</span><span class="p">(</span><span class="n">message</span><span class="p">)</span>
+        <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">message</span><span class="p">,</span> <span class="nb">unicode</span><span class="p">):</span>
+            <span class="n">message</span> <span class="o">=</span> <span class="n">message</span><span class="o">.</span><span class="n">encode</span><span class="p">(</span><span class="s">&quot;utf-8&quot;</span><span class="p">)</span>
+        <span class="k">assert</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">message</span><span class="p">,</span> <span class="nb">str</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">ws_protocol</span><span class="o">.</span><span class="n">sendMessage</span><span class="p">(</span><span class="n">message</span><span class="p">)</span>
+</div>
+    <span class="k">def</span> <span class="nf">_rawDataReceived</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">data</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">ws_protocol</span><span class="o">.</span><span class="n">handleRawData</span><span class="p">(</span><span class="n">data</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">_execute</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">transforms</span><span class="p">,</span> <span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_transforms</span> <span class="o">=</span> <span class="n">transforms</span> <span class="ow">or</span> <span class="nb">list</span><span class="p">()</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="k">assert</span> <span class="bp">self</span><span class="o">.</span><span class="n">request</span><span class="o">.</span><span class="n">headers</span><span class="p">[</span><span class="s">&quot;Upgrade&quot;</span><span class="p">]</span><span class="o">.</span><span class="n">lower</span><span class="p">()</span> <span class="o">==</span> <span class="s">&quot;websocket&quot;</span>
+        <span class="k">except</span><span class="p">:</span>
+            <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">forbidConnection</span><span class="p">(</span><span class="s">&quot;Expected WebSocket Headers&quot;</span><span class="p">)</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">_connectionMade</span> <span class="o">=</span> <span class="n">functools</span><span class="o">.</span><span class="n">partial</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">connectionMade</span><span class="p">,</span>
+                                                 <span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">)</span>
+
+        <span class="k">if</span> <span class="s">&quot;Sec-Websocket-Version&quot;</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">request</span><span class="o">.</span><span class="n">headers</span> <span class="ow">and</span> \
+            <span class="bp">self</span><span class="o">.</span><span class="n">request</span><span class="o">.</span><span class="n">headers</span><span class="p">[</span><span class="s">&#39;Sec-Websocket-Version&#39;</span><span class="p">]</span> <span class="ow">in</span> <span class="p">(</span><span class="s">&#39;7&#39;</span><span class="p">,</span> <span class="s">&#39;8&#39;</span><span class="p">,</span> <span class="s">&#39;13&#39;</span><span class="p">):</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">ws_protocol</span> <span class="o">=</span> <span class="n">WebSocketProtocol17</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span>
+        <span class="k">elif</span> <span class="s">&quot;Sec-WebSocket-Version&quot;</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">request</span><span class="o">.</span><span class="n">headers</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">transport</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="n">cyclone</span><span class="o">.</span><span class="n">escape</span><span class="o">.</span><span class="n">utf8</span><span class="p">(</span>
+                <span class="s">&quot;HTTP/1.1 426 Upgrade Required</span><span class="se">\r\n</span><span class="s">&quot;</span>
+                <span class="s">&quot;Sec-WebSocket-Version: 8</span><span class="se">\r\n\r\n</span><span class="s">&quot;</span><span class="p">))</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">transport</span><span class="o">.</span><span class="n">loseConnection</span><span class="p">()</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">ws_protocol</span> <span class="o">=</span> <span class="n">WebSocketProtocol76</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">request</span><span class="o">.</span><span class="n">connection</span><span class="o">.</span><span class="n">setRawMode</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">request</span><span class="o">.</span><span class="n">connection</span><span class="o">.</span><span class="n">rawDataReceived</span> <span class="o">=</span> \
+            <span class="bp">self</span><span class="o">.</span><span class="n">ws_protocol</span><span class="o">.</span><span class="n">rawDataReceived</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">ws_protocol</span><span class="o">.</span><span class="n">acceptConnection</span><span class="p">()</span>
+
+    <span class="k">def</span> <span class="nf">forbidConnection</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">message</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">transport</span><span class="o">.</span><span class="n">write</span><span class="p">(</span>
+            <span class="s">&quot;HTTP/1.1 403 Forbidden</span><span class="se">\r\n</span><span class="s">Content-Length: </span><span class="si">%s</span><span class="se">\r\n\r\n</span><span class="si">%s</span><span class="s">&quot;</span> <span class="o">%</span>
+            <span class="p">(</span><span class="nb">str</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">message</span><span class="p">)),</span> <span class="n">message</span><span class="p">))</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">transport</span><span class="o">.</span><span class="n">loseConnection</span><span class="p">()</span>
+
+</div>
+<span class="k">class</span> <span class="nc">WebSocketProtocol</span><span class="p">(</span><span class="nb">object</span><span class="p">):</span>
+    <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">handler</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">handler</span> <span class="o">=</span> <span class="n">handler</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">request</span> <span class="o">=</span> <span class="n">handler</span><span class="o">.</span><span class="n">request</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">transport</span> <span class="o">=</span> <span class="n">handler</span><span class="o">.</span><span class="n">transport</span>
+
+    <span class="k">def</span> <span class="nf">acceptConnection</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">pass</span>
+
+    <span class="k">def</span> <span class="nf">rawDataReceived</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">data</span><span class="p">):</span>
+        <span class="k">pass</span>
+
+    <span class="k">def</span> <span class="nf">sendMessage</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">message</span><span class="p">):</span>
+        <span class="k">pass</span>
+
+
+<span class="k">class</span> <span class="nc">WebSocketProtocol17</span><span class="p">(</span><span class="n">WebSocketProtocol</span><span class="p">):</span>
+    <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">handler</span><span class="p">):</span>
+        <span class="n">WebSocketProtocol</span><span class="o">.</span><span class="n">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">handler</span><span class="p">)</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">_partial_data</span> <span class="o">=</span> <span class="bp">None</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">_frame_fin</span> <span class="o">=</span> <span class="bp">None</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_frame_rsv</span> <span class="o">=</span> <span class="bp">None</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_frame_ops</span> <span class="o">=</span> <span class="bp">None</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_frame_mask</span> <span class="o">=</span> <span class="bp">None</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_frame_payload_length</span> <span class="o">=</span> <span class="bp">None</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_frame_header_length</span> <span class="o">=</span> <span class="bp">None</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">_data_len</span> <span class="o">=</span> <span class="bp">None</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_header_index</span> <span class="o">=</span> <span class="bp">None</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">_message_buffer</span> <span class="o">=</span> <span class="s">&quot;&quot;</span>
+
+    <span class="k">def</span> <span class="nf">acceptConnection</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="n">log</span><span class="o">.</span><span class="n">msg</span><span class="p">(</span><span class="s">&#39;Using ws spec (draft 17)&#39;</span><span class="p">)</span>
+
+        <span class="c"># The difference between version 8 and 13 is that in 8 the</span>
+        <span class="c"># client sends a &quot;Sec-Websocket-Origin&quot; header and in 13 it&#39;s</span>
+        <span class="c"># simply &quot;Origin&quot;.</span>
+        <span class="k">if</span> <span class="s">&#39;Origin&#39;</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">request</span><span class="o">.</span><span class="n">headers</span><span class="p">:</span>
+            <span class="n">origin</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">request</span><span class="o">.</span><span class="n">headers</span><span class="p">[</span><span class="s">&#39;Origin&#39;</span><span class="p">]</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">origin</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">request</span><span class="o">.</span><span class="n">headers</span><span class="p">[</span><span class="s">&#39;Sec-Websocket-Origin&#39;</span><span class="p">]</span>
+
+        <span class="n">key</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">request</span><span class="o">.</span><span class="n">headers</span><span class="p">[</span><span class="s">&#39;Sec-Websocket-Key&#39;</span><span class="p">]</span>
+        <span class="n">accept</span> <span class="o">=</span> <span class="n">base64</span><span class="o">.</span><span class="n">b64encode</span><span class="p">(</span><span class="n">hashlib</span><span class="o">.</span><span class="n">sha1</span><span class="p">(</span><span class="s">&quot;</span><span class="si">%s%s</span><span class="s">&quot;</span> <span class="o">%</span>
+            <span class="p">(</span><span class="n">key</span><span class="p">,</span> <span class="s">&#39;258EAFA5-E914-47DA-95CA-C5AB0DC85B11&#39;</span><span class="p">))</span><span class="o">.</span><span class="n">digest</span><span class="p">())</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">transport</span><span class="o">.</span><span class="n">write</span><span class="p">(</span>
+            <span class="s">&quot;HTTP/1.1 101 Web Socket Protocol Handshake</span><span class="se">\r\n</span><span class="s">&quot;</span>
+            <span class="s">&quot;Upgrade: WebSocket</span><span class="se">\r\n</span><span class="s">&quot;</span>
+            <span class="s">&quot;Connection: Upgrade</span><span class="se">\r\n</span><span class="s">&quot;</span>
+            <span class="s">&quot;Sec-WebSocket-Accept: </span><span class="si">%s</span><span class="se">\r\n</span><span class="s">&quot;</span>
+            <span class="s">&quot;Server: cyclone/</span><span class="si">%s</span><span class="se">\r\n</span><span class="s">&quot;</span>
+            <span class="s">&quot;WebSocket-Origin: </span><span class="si">%s</span><span class="se">\r\n</span><span class="s">&quot;</span>
+            <span class="s">&quot;WebSocket-Location: ws://</span><span class="si">%s%s</span><span class="se">\r\n\r\n</span><span class="s">&quot;</span> <span class="o">%</span>
+            <span class="p">(</span><span class="n">accept</span><span class="p">,</span> <span class="n">cyclone</span><span class="o">.</span><span class="n">version</span><span class="p">,</span> <span class="n">origin</span><span class="p">,</span>
+             <span class="bp">self</span><span class="o">.</span><span class="n">request</span><span class="o">.</span><span class="n">host</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">request</span><span class="o">.</span><span class="n">path</span><span class="p">))</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">handler</span><span class="o">.</span><span class="n">_connectionMade</span><span class="p">()</span>
+
+    <span class="k">def</span> <span class="nf">rawDataReceived</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">data</span><span class="p">):</span>
+
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_partial_data</span><span class="p">:</span>
+            <span class="n">data</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_partial_data</span> <span class="o">+</span> <span class="n">data</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_partial_data</span> <span class="o">=</span> <span class="bp">None</span>
+
+        <span class="k">try</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_processFrameHeader</span><span class="p">(</span><span class="n">data</span><span class="p">)</span>
+        <span class="k">except</span> <span class="n">_NotEnoughFrame</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_partial_data</span> <span class="o">=</span> <span class="n">data</span>
+            <span class="k">return</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">_message_buffer</span> <span class="o">+=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_extractMessageFromFrame</span><span class="p">(</span><span class="n">data</span><span class="p">)</span>
+
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_frame_fin</span><span class="p">:</span>
+            <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_frame_ops</span> <span class="o">==</span> <span class="mi">8</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">sendMessage</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_message_buffer</span><span class="p">,</span> <span class="n">code</span><span class="o">=</span><span class="mh">0x88</span><span class="p">)</span>
+                <span class="c">#self.handler.connectionLost(self._message_buffer)</span>
+            <span class="k">elif</span> <span class="bp">self</span><span class="o">.</span><span class="n">_frame_ops</span> <span class="o">==</span> <span class="mi">9</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">sendMessage</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_message_buffer</span><span class="p">,</span> <span class="n">code</span><span class="o">=</span><span class="mh">0x8A</span><span class="p">)</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">handler</span><span class="o">.</span><span class="n">messageReceived</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_message_buffer</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_message_buffer</span> <span class="o">=</span> <span class="s">&quot;&quot;</span>
+
+        <span class="c"># if there is still data after this frame, process again</span>
+        <span class="n">current_len</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_frame_header_len</span> <span class="o">+</span> <span class="bp">self</span><span class="o">.</span><span class="n">_frame_payload_len</span>
+        <span class="k">if</span> <span class="n">current_len</span> <span class="o">&lt;</span> <span class="bp">self</span><span class="o">.</span><span class="n">_data_len</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">rawDataReceived</span><span class="p">(</span><span class="n">data</span><span class="p">[</span><span class="n">current_len</span><span class="p">:])</span>
+
+    <span class="k">def</span> <span class="nf">_processFrameHeader</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">data</span><span class="p">):</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">_data_len</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">data</span><span class="p">)</span>
+
+        <span class="c"># we need at least 2 bytes to start processing a frame</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_data_len</span> <span class="o">&lt;</span> <span class="mi">2</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="n">_NotEnoughFrame</span><span class="p">()</span>
+
+        <span class="c"># first byte contains fin, rsv and ops</span>
+        <span class="n">b</span> <span class="o">=</span> <span class="nb">ord</span><span class="p">(</span><span class="n">data</span><span class="p">[</span><span class="mi">0</span><span class="p">])</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_frame_fin</span> <span class="o">=</span> <span class="p">(</span><span class="n">b</span> <span class="o">&amp;</span> <span class="mh">0x80</span><span class="p">)</span> <span class="o">!=</span> <span class="mi">0</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_frame_rsv</span> <span class="o">=</span> <span class="p">(</span><span class="n">b</span> <span class="o">&amp;</span> <span class="mh">0x70</span><span class="p">)</span> <span class="o">&gt;&gt;</span> <span class="mi">4</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_frame_ops</span> <span class="o">=</span> <span class="n">b</span> <span class="o">&amp;</span> <span class="mh">0x0f</span>
+
+        <span class="c"># second byte contains mask and payload length</span>
+        <span class="n">b</span> <span class="o">=</span> <span class="nb">ord</span><span class="p">(</span><span class="n">data</span><span class="p">[</span><span class="mi">1</span><span class="p">])</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_frame_mask</span> <span class="o">=</span> <span class="p">(</span><span class="n">b</span> <span class="o">&amp;</span> <span class="mh">0x80</span><span class="p">)</span> <span class="o">!=</span> <span class="mi">0</span>
+        <span class="n">frame_payload_len1</span> <span class="o">=</span> <span class="n">b</span> <span class="o">&amp;</span> <span class="mh">0x7f</span>
+
+        <span class="c"># accumulating for self._frame_header_len</span>
+        <span class="n">i</span> <span class="o">=</span> <span class="mi">2</span>
+
+        <span class="k">if</span> <span class="n">frame_payload_len1</span> <span class="o">&lt;</span> <span class="mi">126</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_frame_payload_len</span> <span class="o">=</span> <span class="n">frame_payload_len1</span>
+        <span class="k">elif</span> <span class="n">frame_payload_len1</span> <span class="o">==</span> <span class="mi">126</span><span class="p">:</span>
+            <span class="n">i</span> <span class="o">+=</span> <span class="mi">2</span>
+            <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_data_len</span> <span class="o">&lt;</span> <span class="n">i</span><span class="p">:</span>
+                <span class="k">raise</span> <span class="n">_NotEnoughFrame</span><span class="p">()</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_frame_payload_len</span> <span class="o">=</span> <span class="n">struct</span><span class="o">.</span><span class="n">unpack</span><span class="p">(</span><span class="s">&quot;!H&quot;</span><span class="p">,</span> <span class="n">data</span><span class="p">[</span><span class="n">i</span> <span class="o">-</span> <span class="mi">2</span><span class="p">:</span><span class="n">i</span><span class="p">])[</span><span class="mi">0</span><span class="p">]</span>
+        <span class="k">elif</span> <span class="n">frame_payload_len1</span> <span class="o">==</span> <span class="mi">127</span><span class="p">:</span>
+            <span class="n">i</span> <span class="o">+=</span> <span class="mi">8</span>
+            <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_data_len</span> <span class="o">&lt;</span> <span class="n">i</span><span class="p">:</span>
+                <span class="k">raise</span> <span class="n">_NotEnoughFrame</span><span class="p">()</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_frame_payload_len</span> <span class="o">=</span> <span class="n">struct</span><span class="o">.</span><span class="n">unpack</span><span class="p">(</span><span class="s">&quot;!Q&quot;</span><span class="p">,</span> <span class="n">data</span><span class="p">[</span><span class="n">i</span> <span class="o">-</span> <span class="mi">8</span><span class="p">:</span><span class="n">i</span><span class="p">])[</span><span class="mi">0</span><span class="p">]</span>
+
+        <span class="k">if</span> <span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_frame_mask</span><span class="p">):</span>
+            <span class="n">i</span> <span class="o">+=</span> <span class="mi">4</span>
+
+        <span class="k">if</span> <span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_data_len</span> <span class="o">-</span> <span class="n">i</span><span class="p">)</span> <span class="o">&lt;</span> <span class="bp">self</span><span class="o">.</span><span class="n">_frame_payload_len</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="n">_NotEnoughFrame</span><span class="p">()</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">_frame_header_len</span> <span class="o">=</span> <span class="n">i</span>
+
+    <span class="k">def</span> <span class="nf">_extractMessageFromFrame</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">data</span><span class="p">):</span>
+        <span class="n">i</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_frame_header_len</span>
+
+        <span class="c"># when payload is masked, extract frame mask</span>
+        <span class="n">frame_mask</span> <span class="o">=</span> <span class="bp">None</span>
+        <span class="n">frame_mask_array</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_frame_mask</span><span class="p">:</span>
+            <span class="n">frame_mask</span> <span class="o">=</span> <span class="n">data</span><span class="p">[</span><span class="n">i</span> <span class="o">-</span> <span class="mi">4</span><span class="p">:</span><span class="n">i</span><span class="p">]</span>
+            <span class="k">for</span> <span class="n">j</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="mi">4</span><span class="p">):</span>
+                <span class="n">frame_mask_array</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="nb">ord</span><span class="p">(</span><span class="n">frame_mask</span><span class="p">[</span><span class="n">j</span><span class="p">]))</span>
+            <span class="n">payload</span> <span class="o">=</span> <span class="nb">bytearray</span><span class="p">(</span><span class="n">data</span><span class="p">[</span><span class="n">i</span><span class="p">:</span><span class="n">i</span> <span class="o">+</span> <span class="bp">self</span><span class="o">.</span><span class="n">_frame_payload_len</span><span class="p">])</span>
+            <span class="k">for</span> <span class="n">k</span> <span class="ow">in</span> <span class="nb">xrange</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">_frame_payload_len</span><span class="p">):</span>
+                <span class="n">payload</span><span class="p">[</span><span class="n">k</span><span class="p">]</span> <span class="o">^=</span> <span class="n">frame_mask_array</span><span class="p">[</span><span class="n">k</span> <span class="o">%</span> <span class="mi">4</span><span class="p">]</span>
+
+            <span class="k">return</span> <span class="nb">str</span><span class="p">(</span><span class="n">payload</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="k">return</span> <span class="n">data</span><span class="p">[</span><span class="n">i</span><span class="p">:</span><span class="n">i</span><span class="o">+</span><span class="bp">self</span><span class="o">.</span><span class="n">_frame_payload_len</span><span class="p">]</span>
+
+    <span class="k">def</span> <span class="nf">sendMessage</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">message</span><span class="p">,</span> <span class="n">code</span><span class="o">=</span><span class="mh">0x81</span><span class="p">):</span>
+        <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">message</span><span class="p">,</span> <span class="nb">unicode</span><span class="p">):</span>
+            <span class="n">message</span> <span class="o">=</span> <span class="n">message</span><span class="o">.</span><span class="n">encode</span><span class="p">(</span><span class="s">&#39;utf8&#39;</span><span class="p">)</span>
+        <span class="n">length</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">message</span><span class="p">)</span>
+        <span class="n">newFrame</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="n">newFrame</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">code</span><span class="p">)</span>
+        <span class="n">newFrame</span> <span class="o">=</span> <span class="nb">bytearray</span><span class="p">(</span><span class="n">newFrame</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">length</span> <span class="o">&lt;=</span> <span class="mi">125</span><span class="p">:</span>
+            <span class="n">newFrame</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">length</span><span class="p">)</span>
+        <span class="k">elif</span> <span class="n">length</span> <span class="o">&gt;</span> <span class="mi">125</span> <span class="ow">and</span> <span class="n">length</span> <span class="o">&lt;</span> <span class="mi">65536</span><span class="p">:</span>
+            <span class="n">newFrame</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="mi">126</span><span class="p">)</span>
+            <span class="n">newFrame</span> <span class="o">+=</span> <span class="n">struct</span><span class="o">.</span><span class="n">pack</span><span class="p">(</span><span class="s">&#39;!H&#39;</span><span class="p">,</span> <span class="n">length</span><span class="p">)</span>
+        <span class="k">elif</span> <span class="n">length</span> <span class="o">&gt;=</span> <span class="mi">65536</span><span class="p">:</span>
+            <span class="n">newFrame</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="mi">127</span><span class="p">)</span>
+            <span class="n">newFrame</span> <span class="o">+=</span> <span class="n">struct</span><span class="o">.</span><span class="n">pack</span><span class="p">(</span><span class="s">&#39;!Q&#39;</span><span class="p">,</span> <span class="n">length</span><span class="p">)</span>
+
+        <span class="n">newFrame</span> <span class="o">+=</span> <span class="n">message</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">transport</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="nb">str</span><span class="p">(</span><span class="n">newFrame</span><span class="p">))</span>
+
+
+<span class="k">class</span> <span class="nc">WebSocketProtocol76</span><span class="p">(</span><span class="n">WebSocketProtocol</span><span class="p">):</span>
+    <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">handler</span><span class="p">):</span>
+        <span class="n">WebSocketProtocol</span><span class="o">.</span><span class="n">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">handler</span><span class="p">)</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">_k1</span> <span class="o">=</span> <span class="bp">None</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_k2</span> <span class="o">=</span> <span class="bp">None</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_nonce</span> <span class="o">=</span> <span class="bp">None</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">_postheader</span> <span class="o">=</span> <span class="bp">False</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_protocol</span> <span class="o">=</span> <span class="bp">None</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">_frame_decoder</span> <span class="o">=</span> <span class="n">Hixie76FrameDecoder</span><span class="p">()</span>
+
+    <span class="k">def</span> <span class="nf">acceptConnection</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">if</span> <span class="s">&quot;Sec-Websocket-Key1&quot;</span> <span class="ow">not</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">request</span><span class="o">.</span><span class="n">headers</span> <span class="ow">or</span> \
+            <span class="s">&quot;Sec-Websocket-Key2&quot;</span> <span class="ow">not</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">request</span><span class="o">.</span><span class="n">headers</span><span class="p">:</span>
+            <span class="n">log</span><span class="o">.</span><span class="n">msg</span><span class="p">(</span><span class="s">&#39;Using old ws spec (draft 75)&#39;</span><span class="p">)</span>
+            <span class="n">ws_origin_header</span> <span class="o">=</span> <span class="s">&quot;WebSocket-Origin&quot;</span>
+            <span class="n">ws_location_header</span> <span class="o">=</span> <span class="s">&quot;WebSocket-Location&quot;</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_protocol</span> <span class="o">=</span> <span class="mi">75</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">log</span><span class="o">.</span><span class="n">msg</span><span class="p">(</span><span class="s">&#39;Using ws draft 76 header exchange&#39;</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_k1</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">request</span><span class="o">.</span><span class="n">headers</span><span class="p">[</span><span class="s">&quot;Sec-WebSocket-Key1&quot;</span><span class="p">]</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_k2</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">request</span><span class="o">.</span><span class="n">headers</span><span class="p">[</span><span class="s">&quot;Sec-WebSocket-Key2&quot;</span><span class="p">]</span>
+            <span class="n">ws_origin_header</span> <span class="o">=</span> <span class="s">&quot;Sec-WebSocket-Origin&quot;</span>
+            <span class="n">ws_location_header</span> <span class="o">=</span> <span class="s">&quot;Sec-WebSocket-Location&quot;</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_protocol</span> <span class="o">=</span> <span class="mi">76</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">transport</span><span class="o">.</span><span class="n">write</span><span class="p">(</span>
+            <span class="s">&quot;HTTP/1.1 101 Web Socket Protocol Handshake</span><span class="se">\r\n</span><span class="s">&quot;</span>
+            <span class="s">&quot;Upgrade: WebSocket</span><span class="se">\r\n</span><span class="s">&quot;</span>
+            <span class="s">&quot;Connection: Upgrade</span><span class="se">\r\n</span><span class="s">&quot;</span>
+            <span class="s">&quot;Server: cyclone/</span><span class="si">%s</span><span class="se">\r\n</span><span class="s">&quot;</span>
+            <span class="s">&quot;</span><span class="si">%s</span><span class="s">: </span><span class="si">%s</span><span class="se">\r\n</span><span class="s">&quot;</span>
+            <span class="s">&quot;</span><span class="si">%s</span><span class="s">: ws://</span><span class="si">%s%s</span><span class="se">\r\n\r\n</span><span class="s">&quot;</span> <span class="o">%</span>
+            <span class="p">(</span><span class="n">cyclone</span><span class="o">.</span><span class="n">version</span><span class="p">,</span> <span class="n">ws_origin_header</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">request</span><span class="o">.</span><span class="n">headers</span><span class="p">[</span><span class="s">&quot;Origin&quot;</span><span class="p">],</span>
+             <span class="n">ws_location_header</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">request</span><span class="o">.</span><span class="n">host</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">request</span><span class="o">.</span><span class="n">path</span><span class="p">))</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_postheader</span> <span class="o">=</span> <span class="bp">True</span>
+
+    <span class="k">def</span> <span class="nf">_handleClientChallenge</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">data</span><span class="p">):</span>
+        <span class="c"># accumulate data until the challenge token from client is complete</span>
+        <span class="c"># return None if not enough data to form the challenge has been passed,</span>
+        <span class="c"># a string (eventually empty) of the rest of the bytes not used for the</span>
+        <span class="c"># challenge</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_nonce</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_nonce</span> <span class="o">=</span> <span class="n">data</span><span class="p">[:</span><span class="mi">8</span><span class="p">]</span>
+            <span class="n">rest</span> <span class="o">=</span> <span class="n">data</span><span class="p">[</span><span class="mi">8</span><span class="p">:]</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">bytes_remaining</span> <span class="o">=</span> <span class="mi">8</span> <span class="o">-</span> <span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_nonce</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_nonce</span> <span class="o">+=</span> <span class="n">data</span><span class="p">[:</span><span class="n">bytes_remaining</span><span class="p">]</span>
+            <span class="n">rest</span> <span class="o">=</span> <span class="n">data</span><span class="p">[</span><span class="n">bytes_remaining</span><span class="p">:]</span>
+
+        <span class="c"># if self._nonce is complete, return the remaining data (eventually &#39;&#39;)</span>
+        <span class="c"># else, return None to signal that nonce has not yet been completely</span>
+        <span class="c"># received</span>
+        <span class="k">return</span> <span class="n">rest</span> <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_nonce</span><span class="p">)</span> <span class="o">==</span> <span class="mi">8</span> <span class="k">else</span> <span class="bp">None</span>
+
+    <span class="k">def</span> <span class="nf">rawDataReceived</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">data</span><span class="p">):</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_postheader</span> <span class="ow">is</span> <span class="bp">True</span> <span class="ow">and</span> <span class="bp">self</span><span class="o">.</span><span class="n">_protocol</span> <span class="o">&gt;=</span> <span class="mi">76</span><span class="p">:</span>
+            <span class="n">rest</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_handleClientChallenge</span><span class="p">(</span><span class="n">data</span><span class="p">)</span>
+            <span class="k">if</span> <span class="n">rest</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+                <span class="c"># not enough bytes for the challenge data, process later</span>
+                <span class="k">return</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="c"># process challenge and (eventually) process remaining data by</span>
+                <span class="c"># calling rawDataReceived with the rest of data</span>
+                <span class="n">token</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_calculate_token</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_k1</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">_k2</span><span class="p">,</span>
+                                              <span class="bp">self</span><span class="o">.</span><span class="n">_nonce</span><span class="p">)</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">transport</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="n">token</span><span class="p">)</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">_postheader</span> <span class="o">=</span> <span class="bp">False</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">handler</span><span class="o">.</span><span class="n">_connectionMade</span><span class="p">()</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">rawDataReceived</span><span class="p">(</span><span class="n">rest</span><span class="p">)</span>
+                <span class="k">return</span>
+
+        <span class="c"># process websocket frames</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">frames</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_frame_decoder</span><span class="o">.</span><span class="n">feed</span><span class="p">(</span><span class="n">data</span><span class="p">)</span>
+            <span class="k">for</span> <span class="n">message</span> <span class="ow">in</span> <span class="n">frames</span><span class="p">:</span>
+                <span class="k">if</span> <span class="n">message</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
+                    <span class="c"># incomplete frame, wait for more data</span>
+                    <span class="k">return</span>
+                <span class="k">elif</span> <span class="n">message</span> <span class="ow">is</span> <span class="bp">self</span><span class="o">.</span><span class="n">_frame_decoder</span><span class="o">.</span><span class="n">CLOSING_FRAME</span><span class="p">:</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
+                <span class="k">else</span><span class="p">:</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">handler</span><span class="o">.</span><span class="n">messageReceived</span><span class="p">(</span><span class="n">message</span><span class="p">)</span>
+        <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+            <span class="n">log</span><span class="o">.</span><span class="n">msg</span><span class="p">(</span><span class="s">&quot;Invalid WebSocket data: </span><span class="si">%r</span><span class="s">&quot;</span> <span class="o">%</span> <span class="n">e</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">handler</span><span class="o">.</span><span class="n">_handle_request_exception</span><span class="p">(</span><span class="n">e</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">transport</span><span class="o">.</span><span class="n">loseConnection</span><span class="p">()</span>
+
+    <span class="k">def</span> <span class="nf">close</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">transport</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="s">&#39;</span><span class="se">\xff\x00</span><span class="s">&#39;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">transport</span><span class="o">.</span><span class="n">loseConnection</span><span class="p">()</span>
+
+    <span class="k">def</span> <span class="nf">sendMessage</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">message</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">transport</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="s">&quot;</span><span class="se">\x00</span><span class="si">%s</span><span class="se">\xff</span><span class="s">&quot;</span> <span class="o">%</span> <span class="n">message</span><span class="p">)</span>
+
+    <span class="k">def</span> <span class="nf">_calculate_token</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">k1</span><span class="p">,</span> <span class="n">k2</span><span class="p">,</span> <span class="n">k3</span><span class="p">):</span>
+        <span class="n">token</span> <span class="o">=</span> <span class="n">struct</span><span class="o">.</span><span class="n">pack</span><span class="p">(</span><span class="s">&#39;&gt;II8s&#39;</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">_filterella</span><span class="p">(</span><span class="n">k1</span><span class="p">),</span>
+                            <span class="bp">self</span><span class="o">.</span><span class="n">_filterella</span><span class="p">(</span><span class="n">k2</span><span class="p">),</span> <span class="n">k3</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">hashlib</span><span class="o">.</span><span class="n">md5</span><span class="p">(</span><span class="n">token</span><span class="p">)</span><span class="o">.</span><span class="n">digest</span><span class="p">()</span>
+
+    <span class="k">def</span> <span class="nf">_filterella</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">w</span><span class="p">):</span>
+        <span class="n">nums</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="n">spaces</span> <span class="o">=</span> <span class="mi">0</span>
+        <span class="k">for</span> <span class="n">l</span> <span class="ow">in</span> <span class="n">w</span><span class="p">:</span>
+            <span class="k">if</span> <span class="n">l</span><span class="o">.</span><span class="n">isdigit</span><span class="p">():</span>
+                <span class="n">nums</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">l</span><span class="p">)</span>
+            <span class="k">if</span> <span class="n">l</span><span class="o">.</span><span class="n">isspace</span><span class="p">():</span>
+                <span class="n">spaces</span> <span class="o">=</span> <span class="n">spaces</span> <span class="o">+</span> <span class="mi">1</span>
+        <span class="n">x</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="s">&#39;&#39;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">nums</span><span class="p">))</span> <span class="o">/</span> <span class="n">spaces</span>
+        <span class="k">return</span> <span class="n">x</span>
+
+
+<div class="viewcode-block" id="FrameDecodeError"><a class="viewcode-back" href="../../websocket.html#cyclone.websocket.FrameDecodeError">[docs]</a><span class="k">class</span> <span class="nc">FrameDecodeError</span><span class="p">(</span><span class="ne">Exception</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot; Frame Decode Error &quot;&quot;&quot;</span>
+
+</div>
+<div class="viewcode-block" id="Hixie76FrameDecoder"><a class="viewcode-back" href="../../websocket.html#cyclone.websocket.Hixie76FrameDecoder">[docs]</a><span class="k">class</span> <span class="nc">Hixie76FrameDecoder</span><span class="p">(</span><span class="nb">object</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Hixie76 Frame Decoder</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="c"># represents a closing frame</span>
+    <span class="n">CLOSING_FRAME</span> <span class="o">=</span> <span class="nb">object</span><span class="p">()</span>
+
+    <span class="c"># possible states for the frame decoder</span>
+    <span class="n">WAIT_FOR_FRAME_TYPE</span> <span class="o">=</span> <span class="mi">0</span>   <span class="c"># waiting for the frame type byte</span>
+    <span class="n">INSIDE_FRAME</span> <span class="o">=</span> <span class="mi">1</span>          <span class="c"># inside a frame and accumulating bytes until the</span>
+                              <span class="c"># end of it</span>
+    <span class="n">WAIT_FOR_CLOSE</span> <span class="o">=</span> <span class="mi">2</span>        <span class="c"># frame type was \xff, waiting for \x00 to form a</span>
+                              <span class="c"># closing frame</span>
+
+    <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_state</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">WAIT_FOR_FRAME_TYPE</span>  <span class="c"># current state</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_frame</span> <span class="o">=</span> <span class="p">[]</span>  <span class="c"># accumulates frame message</span>
+
+<div class="viewcode-block" id="Hixie76FrameDecoder.feed"><a class="viewcode-back" href="../../websocket.html#cyclone.websocket.Hixie76FrameDecoder.feed">[docs]</a>    <span class="k">def</span> <span class="nf">feed</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">data</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Feed the frame decode with new data. Returns a list of the resulting</span>
+<span class="sd">        frames or [] if the input data is insufficient to form a valid frame.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">res</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="k">for</span> <span class="n">b</span> <span class="ow">in</span> <span class="n">data</span><span class="p">:</span>
+            <span class="n">frame</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_feed_byte</span><span class="p">(</span><span class="n">b</span><span class="p">)</span>
+            <span class="k">if</span> <span class="n">frame</span> <span class="ow">is</span> <span class="ow">not</span> <span class="bp">None</span><span class="p">:</span>
+                <span class="n">res</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">frame</span><span class="p">)</span>
+                <span class="k">if</span> <span class="n">frame</span> <span class="ow">is</span> <span class="bp">self</span><span class="o">.</span><span class="n">CLOSING_FRAME</span><span class="p">:</span>
+                    <span class="k">break</span>  <span class="c"># no need to process data which will be discarded</span>
+        <span class="k">return</span> <span class="n">res</span>
+</div>
+    <span class="k">def</span> <span class="nf">_feed_byte</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">b</span><span class="p">):</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">_state</span> <span class="o">==</span> <span class="bp">self</span><span class="o">.</span><span class="n">WAIT_FOR_FRAME_TYPE</span><span class="p">:</span>
+            <span class="k">if</span> <span class="n">b</span> <span class="o">==</span> <span class="s">&#39;</span><span class="se">\x00</span><span class="s">&#39;</span><span class="p">:</span>
+                <span class="c"># start of a new frame</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">_state</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">INSIDE_FRAME</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">_frame</span> <span class="o">=</span> <span class="p">[]</span>
+                <span class="k">return</span> <span class="bp">None</span>
+            <span class="k">elif</span> <span class="n">b</span> <span class="o">==</span> <span class="s">&#39;</span><span class="se">\xff</span><span class="s">&#39;</span><span class="p">:</span>
+                <span class="c"># start of a closing frame</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">_state</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">WAIT_FOR_CLOSE</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">_frame</span> <span class="o">=</span> <span class="p">[]</span>
+                <span class="k">return</span> <span class="bp">None</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="k">raise</span> <span class="n">FrameDecodeError</span><span class="p">(</span><span class="s">&quot;Invalid byte &#39;</span><span class="si">%r</span><span class="s">&#39; while waiting for &quot;</span>
+                                       <span class="s">&quot;a new frame&quot;</span> <span class="o">%</span> <span class="n">b</span><span class="p">)</span>
+        <span class="k">elif</span> <span class="bp">self</span><span class="o">.</span><span class="n">_state</span> <span class="o">==</span> <span class="bp">self</span><span class="o">.</span><span class="n">INSIDE_FRAME</span><span class="p">:</span>
+            <span class="k">if</span> <span class="n">b</span> <span class="o">==</span> <span class="s">&#39;</span><span class="se">\xff</span><span class="s">&#39;</span><span class="p">:</span>
+                <span class="c"># end of frame: reset state, form the new frame and return it</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">_state</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">WAIT_FOR_FRAME_TYPE</span>
+                <span class="n">frame</span> <span class="o">=</span> <span class="s">&#39;&#39;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_frame</span><span class="p">)</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">_frame</span> <span class="o">=</span> <span class="p">[]</span>
+                <span class="k">return</span> <span class="n">frame</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="c"># accumulate frame data</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">_frame</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">b</span><span class="p">)</span>
+        <span class="k">elif</span> <span class="bp">self</span><span class="o">.</span><span class="n">_state</span> <span class="o">==</span> <span class="bp">self</span><span class="o">.</span><span class="n">WAIT_FOR_CLOSE</span><span class="p">:</span>
+            <span class="k">if</span> <span class="n">b</span> <span class="o">==</span> <span class="s">&#39;</span><span class="se">\x00</span><span class="s">&#39;</span><span class="p">:</span>
+                <span class="c"># closing frame received</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">_state</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">WAIT_FOR_FRAME_TYPE</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">_frame</span> <span class="o">=</span> <span class="p">[]</span>
+                <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">CLOSING_FRAME</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="k">raise</span> <span class="n">FrameDecodeError</span><span class="p">(</span><span class="s">&quot;Invalid byte &#39;</span><span class="si">%r</span><span class="s">&#39; while waiting for &quot;</span>
+                                       <span class="s">&quot;close message&quot;</span> <span class="o">%</span> <span class="n">b</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="n">FrameDecodeError</span><span class="p">(</span><span class="s">&quot;Invalid decoder state. &quot;</span>
+                                   <span class="s">&quot;This shouldn&#39;t happen&quot;</span><span class="p">)</span></div>
+</pre></div>
+
+          </div>
+        </div>
+      </div>
+      <div class="sphinxsidebar">
+        <div class="sphinxsidebarwrapper">
+<div id="searchbox" style="display: none">
+  <h3>Quick search</h3>
+    <form class="search" action="../../search.html" method="get">
+      <input type="text" name="q" />
+      <input type="submit" value="Go" />
+      <input type="hidden" name="check_keywords" value="yes" />
+      <input type="hidden" name="area" value="default" />
+    </form>
+    <p class="searchtip" style="font-size: 90%">
+    Enter search terms or a module, class or function name.
+    </p>
+</div>
+<script type="text/javascript">$('#searchbox').show(0);</script>
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="related">
+      <h3>Navigation</h3>
+      <ul>
+        <li class="right" style="margin-right: 10px">
+          <a href="../../genindex.html" title="General Index"
+             >index</a></li>
+        <li class="right" >
+          <a href="../../py-modindex.html" title="Python Module Index"
+             >modules</a> |</li>
+        <li><a href="../../index.html">cyclone git-2013042301 documentation</a> &raquo;</li>
+          <li><a href="../index.html" >Module code</a> &raquo;</li> 
+      </ul>
+    </div>
+    <div class="footer">
+        &copy; Copyright 2013, Alexandre Fiori.
+      Created using <a href="http://sphinx.pocoo.org/">Sphinx</a> 1.1.3.
+    </div>
+  </body>
+</html>
