@@ -1,5 +1,3 @@
-
-
 <!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"
   "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
 
@@ -15,7 +13,7 @@
     
     <script type="text/javascript">
       var DOCUMENTATION_OPTIONS = {
-        URL_ROOT:    '',
+        URL_ROOT:    './',
         VERSION:     'git-2013042301',
         COLLAPSE_INDEX: false,
         FILE_SUFFIX: '.html',
@@ -198,7 +196,7 @@ HTTP method.</p>
 <h3>Input<a class="headerlink" href="#input" title="Permalink to this headline">¶</a></h3>
 <dl class="method">
 <dt id="cyclone.web.RequestHandler.get_argument">
-<tt class="descclassname">RequestHandler.</tt><tt class="descname">get_argument</tt><big>(</big><em>name</em>, <em>default=</em><span class="optional">[</span><span class="optional">]</span>, <em>strip=True</em><big>)</big><a class="reference internal" href="_modules/cyclone/web.html#RequestHandler.get_argument"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#cyclone.web.RequestHandler.get_argument" title="Permalink to this definition">¶</a></dt>
+<tt class="descclassname">RequestHandler.</tt><tt class="descname">get_argument</tt><big>(</big><em>name</em>, <em>default=[]</em>, <em>strip=True</em><big>)</big><a class="reference internal" href="_modules/cyclone/web.html#RequestHandler.get_argument"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#cyclone.web.RequestHandler.get_argument" title="Permalink to this definition">¶</a></dt>
 <dd><p>Returns the value of the argument with the given name.</p>
 <p>If default is not provided, the argument is considered to be
 required, and we throw an HTTP 400 exception if it is missing.</p>
@@ -397,6 +395,47 @@ it will be used instead of the default <tt class="docutils literal"><span class=
 normally, and had different semantics for exception handling.
 Users of <tt class="docutils literal"><span class="pre">get_error_html</span></tt> are encouraged to convert their code
 to override <tt class="docutils literal"><span class="pre">write_error</span></tt> instead.</p>
+<p>In order for error pages to be generated for paths that do not match any
+handlers, you can use the <tt class="xref py py-obj docutils literal"><span class="pre">error_handler</span></tt> keyword argument when
+instantiating the <tt class="docutils literal"><span class="pre">cyclone.web.Application</span></tt> object.</p>
+<p>For example:</p>
+<div class="highlight-none"><div class="highlight"><pre>import cyclone.web
+import httplib
+
+class CustomErrorPageMixin(object):
+    def write_error(self, status_code, **kwargs):
+        kwargs[&quot;code&quot;] = status_code
+        if &#39;message&#39; not in kwargs:
+            kwargs[&quot;message&quot;] = httplib.responses[status_code]
+
+        try:
+            self.render(&quot;error_%d.html&quot; % status_code,
+                    fields=kwargs)
+        except IOError:
+            self.render(&quot;error_all.html&quot;, fields=kwargs)
+
+class CustomErrorHandler(CustomErrorPageMixin,
+        cyclone.web.ErrorHandler):
+    pass
+
+class BaseHandler(CustomErrorPageMixin, cyclone.web.RequestHandler):
+    ...
+</pre></div>
+</div>
+<p>Then, when constructing the <tt class="docutils literal"><span class="pre">cyclone.web.Application</span></tt> object:</p>
+<div class="highlight-none"><div class="highlight"><pre>from cyclone import web
+application = web.Application([
+    (r&quot;/&quot;, MainPageHandler),
+], error_handler=CustomErrorHandler)
+</pre></div>
+</div>
+<p>This technique is also compatible with Bottle-style applications:</p>
+<div class="highlight-none"><div class="highlight"><pre>from cyclone.bottle import create_app
+# create_app takes the same arguments as run
+application = create_app(base_handler=BaseHandler,
+    error_handler=CustomErrorHandler)
+</pre></div>
+</div>
 </dd></dl>
 
 <dl class="method">
@@ -637,7 +676,7 @@ HTML within all of your HTML forms.</p>
 <h2>Application configuration<a class="headerlink" href="#application-configuration" title="Permalink to this headline">¶</a></h2>
 <dl class="class">
 <dt id="cyclone.web.Application">
-<em class="property">class </em><tt class="descclassname">cyclone.web.</tt><tt class="descname">Application</tt><big>(</big><em>handlers=None</em>, <em>default_host=''</em>, <em>transforms=None</em>, <em>**settings</em><big>)</big><a class="reference internal" href="_modules/cyclone/web.html#Application"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#cyclone.web.Application" title="Permalink to this definition">¶</a></dt>
+<em class="property">class </em><tt class="descclassname">cyclone.web.</tt><tt class="descname">Application</tt><big>(</big><em>handlers=None</em>, <em>default_host=''</em>, <em>transforms=None</em>, <em>error_handler=None</em>, <em>**settings</em><big>)</big><a class="reference internal" href="_modules/cyclone/web.html#Application"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#cyclone.web.Application" title="Permalink to this definition">¶</a></dt>
 <dd><p>A collection of request handlers that make up a web application.</p>
 <p>Instances of this class are callable and can be passed directly to
 HTTPServer to serve the application:</p>
@@ -676,6 +715,10 @@ keyword argument. We will serve those files from the /static/ URI
 and we will serve /favicon.ico and /robots.txt from the same directory.
 A custom subclass of StaticFileHandler can be specified with the
 static_handler_class setting.</p>
+<p>It is also possible to customize the error pages the application generates
+in case it does not find any handler for the incoming request by using the
+<tt class="xref py py-obj docutils literal"><span class="pre">error_handler</span></tt> keyword argument. This allows for consistent error pages
+across the application.</p>
 <dl class="attribute">
 <dt id="cyclone.web.Application.settings">
 <tt class="descname">settings</tt><a class="headerlink" href="#cyclone.web.Application.settings" title="Permalink to this definition">¶</a></dt>
@@ -1107,7 +1150,7 @@ filesystem path relative to <tt class="docutils literal"><span class="pre">stati
                         title="previous chapter">Core web framework</a></p>
   <h4>Next topic</h4>
   <p class="topless"><a href="httpserver.html"
-                        title="next chapter"><tt class="docutils literal docutils literal docutils literal"><span class="pre">cyclone.httpserver</span></tt> &#8212; Non-blocking HTTP server</a></p>
+                        title="next chapter"><tt class="docutils literal"><span class="pre">cyclone.httpserver</span></tt> &#8212; Non-blocking HTTP server</a></p>
   <h3>This Page</h3>
   <ul class="this-page-menu">
     <li><a href="_sources/web.txt"
@@ -1151,7 +1194,7 @@ filesystem path relative to <tt class="docutils literal"><span class="pre">stati
     </div>
     <div class="footer">
         &copy; Copyright 2013, Alexandre Fiori.
-      Created using <a href="http://sphinx.pocoo.org/">Sphinx</a> 1.1.3.
+      Created using <a href="http://sphinx-doc.org/">Sphinx</a> 1.2.3.
     </div>
   </body>
 </html>

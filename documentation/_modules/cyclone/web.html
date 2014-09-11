@@ -1,5 +1,3 @@
-
-
 <!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"
   "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
 
@@ -539,7 +537,13 @@
         <span class="bp">self</span><span class="o">.</span><span class="n">set_status</span><span class="p">(</span><span class="n">status</span><span class="p">)</span>
         <span class="c"># Remove whitespace</span>
         <span class="n">url</span> <span class="o">=</span> <span class="n">re</span><span class="o">.</span><span class="n">sub</span><span class="p">(</span><span class="s">r&quot;[\x00-\x20]+&quot;</span><span class="p">,</span> <span class="s">&quot;&quot;</span><span class="p">,</span> <span class="n">utf8</span><span class="p">(</span><span class="n">url</span><span class="p">))</span>
-        <span class="bp">self</span><span class="o">.</span><span class="n">set_header</span><span class="p">(</span><span class="s">&quot;Location&quot;</span><span class="p">,</span> <span class="n">urlparse</span><span class="o">.</span><span class="n">urljoin</span><span class="p">(</span><span class="n">utf8</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">request</span><span class="o">.</span><span class="n">uri</span><span class="p">),</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">request</span><span class="o">.</span><span class="n">uri</span><span class="o">.</span><span class="n">startswith</span><span class="p">(</span><span class="s">&#39;/&#39;</span><span class="p">):</span>
+            <span class="n">request_uri</span> <span class="o">=</span> <span class="s">&#39;&#39;</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">request</span><span class="o">.</span><span class="n">uri</span><span class="o">.</span><span class="n">startswith</span><span class="p">(</span><span class="s">&#39;//&#39;</span><span class="p">):</span>
+            <span class="n">request_uri</span> <span class="o">=</span> <span class="s">&#39;&#39;</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">request_uri</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">request</span><span class="o">.</span><span class="n">uri</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">set_header</span><span class="p">(</span><span class="s">&quot;Location&quot;</span><span class="p">,</span> <span class="n">urlparse</span><span class="o">.</span><span class="n">urljoin</span><span class="p">(</span><span class="n">utf8</span><span class="p">(</span><span class="n">request_uri</span><span class="p">),</span>
                                                      <span class="n">url</span><span class="p">))</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">finish</span><span class="p">()</span>
 </div>
@@ -845,6 +849,48 @@
 <span class="sd">        normally, and had different semantics for exception handling.</span>
 <span class="sd">        Users of ``get_error_html`` are encouraged to convert their code</span>
 <span class="sd">        to override ``write_error`` instead.</span>
+
+<span class="sd">        In order for error pages to be generated for paths that do not match any</span>
+<span class="sd">        handlers, you can use the `error_handler` keyword argument when</span>
+<span class="sd">        instantiating the ``cyclone.web.Application`` object.</span>
+
+<span class="sd">        For example::</span>
+
+<span class="sd">            import cyclone.web</span>
+<span class="sd">            import httplib</span>
+
+<span class="sd">            class CustomErrorPageMixin(object):</span>
+<span class="sd">                def write_error(self, status_code, **kwargs):</span>
+<span class="sd">                    kwargs[&quot;code&quot;] = status_code</span>
+<span class="sd">                    if &#39;message&#39; not in kwargs:</span>
+<span class="sd">                        kwargs[&quot;message&quot;] = httplib.responses[status_code]</span>
+
+<span class="sd">                    try:</span>
+<span class="sd">                        self.render(&quot;error_%d.html&quot; % status_code,</span>
+<span class="sd">                                fields=kwargs)</span>
+<span class="sd">                    except IOError:</span>
+<span class="sd">                        self.render(&quot;error_all.html&quot;, fields=kwargs)</span>
+
+<span class="sd">            class CustomErrorHandler(CustomErrorPageMixin,</span>
+<span class="sd">                    cyclone.web.ErrorHandler):</span>
+<span class="sd">                pass</span>
+
+<span class="sd">            class BaseHandler(CustomErrorPageMixin, cyclone.web.RequestHandler):</span>
+<span class="sd">                ...</span>
+
+<span class="sd">        Then, when constructing the ``cyclone.web.Application`` object::</span>
+
+<span class="sd">            from cyclone import web</span>
+<span class="sd">            application = web.Application([</span>
+<span class="sd">                (r&quot;/&quot;, MainPageHandler),</span>
+<span class="sd">            ], error_handler=CustomErrorHandler)</span>
+
+<span class="sd">        This technique is also compatible with Bottle-style applications::</span>
+
+<span class="sd">            from cyclone.bottle import create_app</span>
+<span class="sd">            # create_app takes the same arguments as run</span>
+<span class="sd">            application = create_app(base_handler=BaseHandler,</span>
+<span class="sd">                error_handler=CustomErrorHandler)</span>
 <span class="sd">        &quot;&quot;&quot;</span>
         <span class="k">if</span> <span class="nb">hasattr</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="s">&#39;get_error_html&#39;</span><span class="p">):</span>
             <span class="k">if</span> <span class="s">&#39;exc_info&#39;</span> <span class="ow">in</span> <span class="n">kwargs</span><span class="p">:</span>
@@ -1346,6 +1392,11 @@
 <span class="sd">    A custom subclass of StaticFileHandler can be specified with the</span>
 <span class="sd">    static_handler_class setting.</span>
 
+<span class="sd">    It is also possible to customize the error pages the application generates</span>
+<span class="sd">    in case it does not find any handler for the incoming request by using the</span>
+<span class="sd">    `error_handler` keyword argument. This allows for consistent error pages</span>
+<span class="sd">    across the application.</span>
+
 <span class="sd">    .. attribute:: settings</span>
 
 <span class="sd">       Additonal keyword arguments passed to the constructor are saved in the</span>
@@ -1355,7 +1406,7 @@
     <span class="n">protocol</span> <span class="o">=</span> <span class="n">httpserver</span><span class="o">.</span><span class="n">HTTPConnection</span>
 
     <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">handlers</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="n">default_host</span><span class="o">=</span><span class="s">&quot;&quot;</span><span class="p">,</span>
-                 <span class="n">transforms</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="o">**</span><span class="n">settings</span><span class="p">):</span>
+                 <span class="n">transforms</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="n">error_handler</span><span class="o">=</span><span class="bp">None</span><span class="p">,</span> <span class="o">**</span><span class="n">settings</span><span class="p">):</span>
         <span class="k">if</span> <span class="n">transforms</span> <span class="ow">is</span> <span class="bp">None</span><span class="p">:</span>
             <span class="bp">self</span><span class="o">.</span><span class="n">transforms</span> <span class="o">=</span> <span class="p">[]</span>
             <span class="k">if</span> <span class="n">settings</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s">&quot;gzip&quot;</span><span class="p">):</span>
@@ -1365,6 +1416,7 @@
             <span class="bp">self</span><span class="o">.</span><span class="n">transforms</span> <span class="o">=</span> <span class="n">transforms</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">handlers</span> <span class="o">=</span> <span class="p">[]</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">named_handlers</span> <span class="o">=</span> <span class="p">{}</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">error_handler</span> <span class="o">=</span> <span class="n">error_handler</span> <span class="ow">or</span> <span class="n">ErrorHandler</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">default_host</span> <span class="o">=</span> <span class="n">default_host</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">settings</span> <span class="o">=</span> <span class="n">ObjectDict</span><span class="p">(</span><span class="n">settings</span><span class="p">)</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">ui_modules</span> <span class="o">=</span> <span class="p">{</span><span class="s">&quot;linkify&quot;</span><span class="p">:</span> <span class="n">_linkify</span><span class="p">,</span>
@@ -1519,7 +1571,7 @@
                             <span class="n">args</span> <span class="o">=</span> <span class="p">[</span><span class="n">unquote</span><span class="p">(</span><span class="n">s</span><span class="p">)</span> <span class="k">for</span> <span class="n">s</span> <span class="ow">in</span> <span class="n">match</span><span class="o">.</span><span class="n">groups</span><span class="p">()]</span>
                     <span class="k">break</span>
             <span class="k">if</span> <span class="ow">not</span> <span class="n">handler</span><span class="p">:</span>
-                <span class="n">handler</span> <span class="o">=</span> <span class="n">ErrorHandler</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">request</span><span class="p">,</span> <span class="n">status_code</span><span class="o">=</span><span class="mi">404</span><span class="p">)</span>
+                <span class="n">handler</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">error_handler</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">request</span><span class="p">,</span> <span class="n">status_code</span><span class="o">=</span><span class="mi">404</span><span class="p">)</span>
 
         <span class="c"># In debug mode, re-compile templates and reload static files on every</span>
         <span class="c"># request so you don&#39;t need to restart to see changes</span>
@@ -2187,6 +2239,7 @@
         <span class="k">return</span> <span class="bp">None</span>
     <span class="k">if</span> <span class="n">parts</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span><span class="o">.</span><span class="n">startswith</span><span class="p">(</span><span class="s">&quot;0&quot;</span><span class="p">):</span>
         <span class="n">log</span><span class="o">.</span><span class="n">msg</span><span class="p">(</span><span class="s">&quot;Tampered cookie </span><span class="si">%r</span><span class="s">&quot;</span> <span class="o">%</span> <span class="n">value</span><span class="p">)</span>
+        <span class="k">return</span> <span class="bp">None</span>
     <span class="k">try</span><span class="p">:</span>
         <span class="k">return</span> <span class="n">base64</span><span class="o">.</span><span class="n">b64decode</span><span class="p">(</span><span class="n">parts</span><span class="p">[</span><span class="mi">0</span><span class="p">])</span>
     <span class="k">except</span> <span class="ne">Exception</span><span class="p">:</span>
@@ -2237,7 +2290,7 @@
     </div>
     <div class="footer">
         &copy; Copyright 2013, Alexandre Fiori.
-      Created using <a href="http://sphinx.pocoo.org/">Sphinx</a> 1.1.3.
+      Created using <a href="http://sphinx-doc.org/">Sphinx</a> 1.2.3.
     </div>
   </body>
 </html>
