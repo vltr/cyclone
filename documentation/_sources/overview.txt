@@ -24,6 +24,14 @@ ssh, sip, irc, etc, all concurrently.
 Besides the rich feature set, there's also an effort for addressing the C10K
 problem. For more information check http://www.kegel.com/c10k.html.
 
+You can install cyclone using pip::
+
+    pip install cyclone
+
+If you want SSL support (this will require to C extensions)::
+
+   pip install cyclone[ssl]
+
 Here is the canonical "Hello, world" example app:
 
 ::
