@@ -10,3 +10,4 @@ dropin.cache
 _trial_temp
 htmlcov
 .coverage
+.python-version
