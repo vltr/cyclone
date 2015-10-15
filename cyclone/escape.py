@@ -41,25 +41,40 @@ except ImportError:
 try:
     import json
     assert hasattr(json, "loads") and hasattr(json, "dumps")
-    _json_decode = json.loads
-    _json_encode = json.dumps
+    _default_json_decode = json.loads
+    _default_json_encode = json.dumps
 except Exception:  # pragma: nocover
     try:
         import simplejson
-        _json_decode = lambda s: simplejson.loads(_unicode(s))
-        _json_encode = lambda v: simplejson.dumps(v)
+        _default_json_decode = lambda s: simplejson.loads(_unicode(s))
+        _default_json_encode = lambda v: simplejson.dumps(v)
     except ImportError:
         try:
             # For Google AppEngine
             from django.utils import simplejson
-            _json_decode = lambda s: simplejson.loads(_unicode(s))
-            _json_encode = lambda v: simplejson.dumps(v)
+            _default_json_decode = lambda s: simplejson.loads(_unicode(s))
+            _default_json_encode = lambda v: simplejson.dumps(v)
         except ImportError:
-            def _json_decode(s):
+            def _default_json_decode(s):
                 raise NotImplementedError(
                     "A JSON parser is required, e.g., simplejson at "
                     "http://pypi.python.org/pypi/simplejson/")
-            _json_encode = _json_decode
+            _default_json_encode = _default_json_decode
+
+_default_json_encode = staticmethod(_default_json_encode)
+_default_json_decode = staticmethod(_default_json_decode)
+
+
+class _JsonEncoder(object):
+    """
+    this class was created to avoid the usage of globals, if anyone have a
+    better idea, you're welcome -- @vltr
+    """
+    pass
+
+
+_JsonEncoder._active_json_encode = _default_json_encode
+_JsonEncoder._active_json_decode = _default_json_decode
 
 
 _XHTML_ESCAPE_RE = re.compile('[&<>"\']')
@@ -86,12 +101,36 @@ def json_encode(value):
     # although python's standard library does not, so we do it here.
     # http://stackoverflow.com/questions/1580647/\
     #       json-why-are-forward-slashes-escaped
-    return _json_encode(recursive_unicode(value)).replace("</", "<\\/")
+    return _JsonEncoder._active_json_encode(recursive_unicode(value)).replace("</", "<\\/")
+
+
+def change_json_encoder(encoder_fn):
+    """Changes the default JSON encoder used by cyclone"""
+    if callable(encoder_fn):
+        _JsonEncoder._active_json_encode = staticmethod(encoder_fn)
+    raise ValueError("the given JSON encoder is not a function")
+
+
+def json_encoder_is_default():
+    """Returns True if the current JSON encoder is cyclone's default,
+    else False.
+    """
+    return _JsonEncoder._active_json_encode == _default_json_encode
+
+
+def reset_json_encoder():
+    """Returns True if cyclone's default JSON encoder is put back in place as
+    default, else False
+    """
+    if json_encoder_is_default():
+        return False
+    _JsonEncoder._active_json_encode = _default_json_encode
+    return json_encoder_is_default()
 
 
 def json_decode(value):
     """Returns Python objects for the given JSON string."""
-    return _json_decode(to_basestring(value))
+    return _JsonEncoder._active_json_decode(to_basestring(value))
 
 
 def squeeze(value):
