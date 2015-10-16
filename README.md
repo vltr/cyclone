@@ -1,3 +1,5 @@
+[![Build Status](https://secure.travis-ci.org/fiorix/cyclone.png)](http://travis-ci.org/fiorix/cyclone)
+
 Cyclone
 =======
 Cyclone is a web server framework for Python, that implements the Tornado API
