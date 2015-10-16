@@ -35,3 +35,9 @@
    -----------------------
    .. autofunction:: linkify
    .. autofunction:: squeeze
+   .. autofunction:: change_json_encoder
+   .. autofunction:: change_json_decoder
+   .. autofunction:: json_encoder_is_default
+   .. autofunction:: json_decoder_is_default
+   .. autofunction:: reset_json_encoder
+   .. autofunction:: reset_json_decoder
