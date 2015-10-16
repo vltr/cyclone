@@ -33,9 +33,9 @@ class TestJsonrpcRequestHandler(unittest.TestCase):
         self.handler.jsonrpc_foo = lambda: "value"
         self.handler.request.body = '{"id":1, "method":"foo"}'
         self.handler.post()
-        # i haven't found any other way to safely test this because json
-        # encoders may differ results, specially using pypy -- @vltr
-        # UPDATE: found this: http://stackoverflow.com/a/28418085
+        # json encoders can differ in their results (e.g., when using
+        # pypy), so use mock to test whether they were being called
+        # correctly (see http://stackoverflow.com/a/28418085)
         call = self.handler.finish.call_args
         call_args, call_kwargs = call
         encoded_object = call_args[0]
