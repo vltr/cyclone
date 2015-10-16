@@ -131,7 +131,7 @@ class TestEscapeJson(unittest.TestCase):
             }
         """
 
-    def _getkey(self, obj, *keys):
+    def _getkey(self, obj, *keys):  # pragma: no cover
         """
         this is a little helper i use to "safely" navigate through an object,
         specially json parsed objects (public with no warranties whatsoever if
@@ -161,7 +161,7 @@ class TestEscapeJson(unittest.TestCase):
             return 'hello, world!'
         return fake_decoder
 
-    def _get_custom_json_encoder(self):
+    def _get_custom_json_encoder(self):  # pragma: no cover
         try:
             import json
         except:
@@ -193,7 +193,7 @@ class TestEscapeJson(unittest.TestCase):
                               separators=(',', ':'))
         return encoder
 
-    def _get_custom_json_decoder(self):
+    def _get_custom_json_decoder(self):  # pragma: no cover
         try:
             import json
         except:

@@ -33,3 +33,47 @@ class TestEscape(unittest.TestCase):
             escape.xhtml_escape("\"'"),
             "&quot;&#39;"
         )
+
+    def test_to_basestring(self):
+        def to_raise():
+            return escape.to_basestring({})
+        self.assertRaises(AssertionError, to_raise)
+
+    def test_linkify_required_proto(self):
+        self.assertEqual(
+            "Hello www.example.ltd!",
+            escape.linkify("Hello www.example.ltd!", require_protocol=True)
+        )
+
+    def test_linkify_no_proto(self):
+        self.assertEqual(
+            'Hello <a href="http://www.example.ltd">www.example.ltd</a>!',
+            escape.linkify("Hello www.example.ltd!")
+        )
+
+    def test_linkify_protolen_zero(self):
+        link = escape.linkify(
+            "Hello www.example.ltd/when/you/have/long/urls/what/to/do!",
+            shorten=True)
+        self.assertEqual(
+            'Hello <a href="http://www.example.ltd/when/you/have/long/urls/what/to/do" title="http://www.example.ltd/when/you/have/long/urls/what/to/do">www.example.ltd/when...</a>!',
+            link
+        )
+
+    def test_linkify_a_too_long_domain(self):
+        link = escape.linkify(
+            "Hello my friends! Please visit www.my-super-duper-awesome-domain-example.ltd/when/you/have/long/urls/what/to/do/you/will/be/shocked?you=will&xyz=1&you=will&not=dream&today!",
+            shorten=True)
+        self.assertEqual(
+            'Hello my friends! Please visit <a href="http://www.my-super-duper-awesome-domain-example.ltd/when/you/have/long/urls/what/to/do/you/will/be/shocked?you=will&amp;xyz=1&amp;you=will&amp;not=dream&amp;today" title="http://www.my-super-duper-awesome-domain-example.ltd/when/you/have/long/urls/what/to/do/you/will/be/shocked?you=will&amp;xyz=1&amp;you=will&amp;not=dream&amp;today">www.my-super-duper-awesome-dom...</a>!',
+            link
+        )
+
+    def test_linkify_a_too_long_domain_with_amp(self):
+        link = escape.linkify(
+            "Hello my friends! Please visit www.the-big-super-duper-ultra&awesome-domain-example.ltd/when/you/have/long/urls?you=will&freakout!",
+            shorten=True)
+        self.assertEqual(
+            'Hello my friends! Please visit <a href="http://www.the-big-super-duper-ultra&amp;awesome-domain-example.ltd/when/you/have/long/urls?you=will&amp;freakout" title="http://www.the-big-super-duper-ultra&amp;awesome-domain-example.ltd/when/you/have/long/urls?you=will&amp;freakout">www.the-big-super-duper-ultra...</a>!',
+            link
+        )

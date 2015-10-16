@@ -33,7 +33,7 @@ from cyclone.util import unicode_type
 
 try:
     from urlparse import parse_qs  # Python 2.6+
-except ImportError:
+except ImportError:  # pragma: nocover
     from cgi import parse_qs
 
 # json module is in the standard library as of python 2.6; fall back to
@@ -208,7 +208,7 @@ _unicode = to_unicode
 
 # When dealing with the standard library across python 2 and 3 it is
 # sometimes useful to have a direct conversion to the native string type
-if str is unicode_type:
+if str is unicode_type:  # pragma: nocover
     native_str = to_unicode
 else:
     native_str = utf8
@@ -228,7 +228,8 @@ def to_basestring(value):
     if isinstance(value, _BASESTRING_TYPES):
         return value
     assert isinstance(value, bytes_type)
-    return value.decode("utf-8")
+    return value.decode("utf-8") # pragma: no cover
+    # NOTE: in python 2.6+ (except 3.x), we'll never get here
 
 
 def recursive_unicode(obj):
@@ -341,7 +342,8 @@ def linkify(text, shorten=False, extra_params="",
                 url += "..."
 
                 if len(url) >= len(before_clip):
-                    url = before_clip
+                    url = before_clip  # TODO probably the code will not reach
+                                       # here
                 else:
                     # full url is visible on mouse-over (for those who don't
                     # have a status bar, such as Safari by default)
