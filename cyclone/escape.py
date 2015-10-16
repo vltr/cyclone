@@ -61,20 +61,11 @@ except Exception:  # pragma: nocover
                     "http://pypi.python.org/pypi/simplejson/")
             _default_json_encode = _default_json_decode
 
-_default_json_encode = staticmethod(_default_json_encode)
-_default_json_decode = staticmethod(_default_json_decode)
 
+_JSON_CODECS = dict()
 
-class _JsonEncoder(object):
-    """
-    this class was created to avoid the usage of globals, if anyone have a
-    better idea, you're welcome -- @vltr
-    """
-    pass
-
-
-_JsonEncoder._active_json_encode = _default_json_encode
-_JsonEncoder._active_json_decode = _default_json_decode
+_JSON_CODECS['active_json_encoder'] = _default_json_encode
+_JSON_CODECS['active_json_decoder'] = _default_json_decode
 
 
 _XHTML_ESCAPE_RE = re.compile('[&<>"\']')
@@ -101,13 +92,14 @@ def json_encode(value):
     # although python's standard library does not, so we do it here.
     # http://stackoverflow.com/questions/1580647/\
     #       json-why-are-forward-slashes-escaped
-    return _JsonEncoder._active_json_encode(recursive_unicode(value)).replace("</", "<\\/")
+    return _JSON_CODECS['active_json_encoder'].__call__(
+        recursive_unicode(value)).replace("</", "<\\/")
 
 
 def change_json_encoder(encoder_fn):
     """Changes the default JSON encoder used by cyclone"""
     if callable(encoder_fn):
-        _JsonEncoder._active_json_encode = staticmethod(encoder_fn)
+        _JSON_CODECS['active_json_encoder'] = encoder_fn
     raise ValueError("the given JSON encoder is not a function")
 
 
@@ -115,7 +107,7 @@ def json_encoder_is_default():
     """Returns True if the current JSON encoder is cyclone's default,
     else False.
     """
-    return _JsonEncoder._active_json_encode == _default_json_encode
+    return _JSON_CODECS['active_json_encoder'] == _default_json_encode
 
 
 def reset_json_encoder():
@@ -124,13 +116,37 @@ def reset_json_encoder():
     """
     if json_encoder_is_default():
         return False
-    _JsonEncoder._active_json_encode = _default_json_encode
+    _JSON_CODECS['active_json_encoder'] = _default_json_encode
     return json_encoder_is_default()
 
 
 def json_decode(value):
     """Returns Python objects for the given JSON string."""
-    return _JsonEncoder._active_json_decode(to_basestring(value))
+    return _JSON_CODECS['active_json_decoder'].__call__(to_basestring(value))
+
+
+def change_json_decoder(decoder_fn):
+    """Changes the default JSON decoder used by cyclone"""
+    if callable(decoder_fn):
+        _JSON_CODECS['active_json_decoder'] = decoder_fn
+    raise ValueError("the given JSON decoder is not a function")
+
+
+def json_decoder_is_default():
+    """Returns True if the current JSON decoder is cyclone's default,
+    else False.
+    """
+    return _JSON_CODECS['active_json_decoder'] == _default_json_decode
+
+
+def reset_json_decoder():
+    """Returns True if cyclone's default JSON decoder is put back in place as
+    default, else False
+    """
+    if json_decoder_is_default():
+        return False
+    _JSON_CODECS['active_json_decoder'] = _default_json_decode
+    return json_decoder_is_default()
 
 
 def squeeze(value):

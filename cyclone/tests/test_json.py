@@ -14,14 +14,17 @@
 # License for the specific language governing permissions and limitations
 # under the License.
 
-from twisted.trial import unittest
+import datetime
 import cyclone.escape
+
+from twisted.trial import unittest
 
 
 class TestEscapeJson(unittest.TestCase):
 
     def setUp(self):
         cyclone.escape.reset_json_encoder()
+        cyclone.escape.reset_json_decoder()
         """
         JSON example from http://json.org/example.html
         """
@@ -153,10 +156,16 @@ class TestEscapeJson(unittest.TestCase):
             return "foo"
         return fake_encoder
 
-    def _get_custom_json_encoder(self):
-        import json
-        import datetime
+    def _get_fake_json_decoder(self):
+        def fake_decoder(value):
+            return 'hello, world!'
+        return fake_decoder
 
+    def _get_custom_json_encoder(self):
+        try:
+            import json
+        except:
+            import simplejson as json
         """
         totimestamp took from stackexchange:
         http://stackoverflow.com/questions/8777753/converting-datetime-date-to-utc-timestamp-in-python
@@ -173,18 +182,44 @@ class TestEscapeJson(unittest.TestCase):
             if isinstance(obj, datetime.datetime):
                 return {
                     '__datetime__': True,
-                    'raw': totimestamp(datetime.datetime.now())
+                    'raw': totimestamp(obj)
                 }
             return obj
 
         def encoder(obj):
-            return json.dumps(obj, default=simple_hook, separators=(',', ':'))
-
+            return json.dumps(obj,
+                              default=simple_hook,
+                              sort_keys=True,  # so we can expect the output
+                              separators=(',', ':'))
         return encoder
+
+    def _get_custom_json_decoder(self):
+        try:
+            import json
+        except:
+            import simplejson as json
+
+        def object_hook(obj):
+            if b'__datetime__' in obj:
+                obj = datetime.datetime.utcfromtimestamp(obj["raw"])
+            return obj
+
+        def decoder(obj):
+            return json.loads(obj, object_hook=object_hook)
+        return decoder
+
+    def test_default_json_encoder(self):
+        obj_to_encode = dict(
+            foo=dict(
+                baz=[0, 1]
+            )
+        )
+        self.assertTrue('{"foo": {"baz": [0, 1]}}' ==
+                        cyclone.escape.json_encode(obj_to_encode))
 
     def test_default_json_decoder(self):
         obj = cyclone.escape.json_decode(self.example_json)
-        self.assertIsNotNone(obj)
+        self.assertIsNot(obj, None)
 
     def test_default_json_decoder_value(self):
         obj = cyclone.escape.json_decode(self.example_json)
@@ -201,42 +236,52 @@ class TestEscapeJson(unittest.TestCase):
                                      'init-param',
                                      'betaServer'))
 
-    def test_default_json_decoder_exception(self):
-        self.assertRaises(Exception, cyclone.escape.json_decode, '')
-
-    def test_default_json_encoder(self):
-        obj_to_encode = dict(
-            foo='bar',
-            baz=[0, 1]
-        )
-        self.assertTrue('{"foo": "bar", "baz": [0, 1]}' ==
-                        cyclone.escape.json_encode(obj_to_encode))
-
     def test_default_json_encoder_exception(self):
         self.assertRaises(Exception, cyclone.escape.json_encode, lambda ign: 1)
 
-    ### -----------------------------------------------------------------------
+    def test_default_json_decoder_exception(self):
+        self.assertRaises(Exception, cyclone.escape.json_decode, '')
 
     def test_change_default_json_encoder_exception(self):
         self.assertRaises(ValueError, cyclone.escape.change_json_encoder, {})
+
+    def test_change_default_json_decoder_exception(self):
+        self.assertRaises(ValueError, cyclone.escape.change_json_decoder, {})
 
     def test_change_default_json_encoder_for_fake(self):
         self.failUnlessRaises(ValueError, cyclone.escape.change_json_encoder,
                               self._get_fake_json_encoder())
 
+    def test_change_default_json_decoder_for_fake(self):
+        self.failUnlessRaises(ValueError, cyclone.escape.change_json_decoder,
+                              self._get_fake_json_decoder())
+
     def test_fake_json_encoder(self):
         self.failUnlessRaises(ValueError, cyclone.escape.change_json_encoder,
                               self._get_fake_json_encoder())
         obj_to_encode = dict(
-            foo='bar',
-            baz=[0, 1]
+            foo=dict(
+                baz=[0, 1]
+            )
         )
         self.assertTrue("foo" == cyclone.escape.json_encode(obj_to_encode))
+
+    def test_fake_json_decoder(self):
+        self.failUnlessRaises(ValueError, cyclone.escape.change_json_decoder,
+                              self._get_fake_json_decoder())
+        json_to_decode = '{"foo": {"baz": [0, 1]}}'
+        self.assertTrue("hello, world!" ==
+                        cyclone.escape.json_decode(json_to_decode))
 
     def test_if_current_json_encoder_is_not_default(self):
         self.failUnlessRaises(ValueError, cyclone.escape.change_json_encoder,
                               self._get_fake_json_encoder())
         self.assertFalse(cyclone.escape.json_encoder_is_default())
+
+    def test_if_current_json_decoder_is_not_default(self):
+        self.failUnlessRaises(ValueError, cyclone.escape.change_json_decoder,
+                              self._get_fake_json_decoder())
+        self.assertFalse(cyclone.escape.json_decoder_is_default())
 
     def test_reset_json_encoder(self):
         self.failUnlessRaises(ValueError, cyclone.escape.change_json_encoder,
@@ -244,40 +289,127 @@ class TestEscapeJson(unittest.TestCase):
         self.assertTrue(cyclone.escape.reset_json_encoder())
         self.assertFalse(cyclone.escape.reset_json_encoder())
 
+    def test_reset_json_decoder(self):
+        self.failUnlessRaises(ValueError, cyclone.escape.change_json_decoder,
+                              self._get_fake_json_decoder())
+        self.assertTrue(cyclone.escape.reset_json_decoder())
+        self.assertFalse(cyclone.escape.reset_json_decoder())
+
     def test_true_if_current_json_encoder_is_default(self):
         self.assertTrue(cyclone.escape.json_encoder_is_default())
+
+    def test_true_if_current_json_decoder_is_default(self):
+        self.assertTrue(cyclone.escape.json_decoder_is_default())
 
     def test_change_default_json_encoder(self):
         self.failUnlessRaises(ValueError, cyclone.escape.change_json_encoder,
                               self._get_custom_json_encoder())
+
+    def test_change_default_json_decoder(self):
+        self.failUnlessRaises(ValueError, cyclone.escape.change_json_decoder,
+                              self._get_custom_json_decoder())
 
     def test_false_if_current_json_encoder_is_default(self):
         self.failUnlessRaises(ValueError, cyclone.escape.change_json_encoder,
                               self._get_fake_json_encoder())
         self.assertFalse(cyclone.escape.json_encoder_is_default())
 
-    def test_custom_json_encoder(self):
-        import datetime
+    def test_false_if_current_json_decoder_is_default(self):
+        self.failUnlessRaises(ValueError, cyclone.escape.change_json_decoder,
+                              self._get_fake_json_decoder())
+        self.assertFalse(cyclone.escape.json_decoder_is_default())
 
+    def test_custom_json_encoder(self):
         self.failUnlessRaises(ValueError, cyclone.escape.change_json_encoder,
                               self._get_custom_json_encoder())
-
         obj_to_encode = dict(
-            foo='bar',
-            baz=[0, 1]
+            foo=dict(
+                baz=[0, 1]
+            )
         )
-
-        self.assertTrue('{"foo":"bar","baz":[0,1]}' ==
+        self.assertTrue('{"foo":{"baz":[0,1]}}' ==
                         cyclone.escape.json_encode(obj_to_encode))
-
         obj_to_encode = dict(
-            foo='bar',
-            baz=[0, 1],
-            my_timestamp=datetime.datetime.now()
+            foo=dict(
+                baz=[dict(my_timestamp=datetime.datetime(2000, 1, 1))]
+            )
         )
-
-        self.assertTrue('"__datetime__":true' in
+        self.assertTrue('{"foo":{"baz":[{"my_timestamp":{"__datetime__":true,"raw":946684800}}]}}' ==
                         cyclone.escape.json_encode(obj_to_encode))
 
-        self.assertTrue('"raw":' in
-                        cyclone.escape.json_encode(obj_to_encode))
+    def test_custom_json_decoder(self):
+        self.failUnlessRaises(ValueError, cyclone.escape.change_json_decoder,
+                              self._get_custom_json_decoder())
+        json_to_decode = '{"foo":{"baz":[0,1]}}'
+        self.assertTrue(dict(foo=dict(baz=[0, 1])) ==
+                        cyclone.escape.json_decode(json_to_decode))
+        json_to_decode = '{"foo":{"baz":[{"my_timestamp":{"__datetime__":true,"raw":946684800}}]}}'
+        decoded_object = cyclone.escape.json_decode(json_to_decode)
+        self.assertTrue(datetime.datetime.utcfromtimestamp(946684800) ==
+                        self._getkey(decoded_object, 'foo', 'baz', 0,
+                                     'my_timestamp'))
+
+    def test_default_json_codecs(self):
+        obj_to_encode = dict(
+            foo=dict(
+                baz=[0, 1]
+            )
+        )
+        encoded_object = cyclone.escape.json_encode(obj_to_encode)
+        self.assertTrue('{"foo": {"baz": [0, 1]}}' ==
+                        encoded_object)
+        self.assertTrue(obj_to_encode ==
+                        cyclone.escape.json_decode(encoded_object))
+
+    def test_custom_json_codecs(self):
+        self.failUnlessRaises(ValueError, cyclone.escape.change_json_encoder,
+                              self._get_custom_json_encoder())
+        self.failUnlessRaises(ValueError, cyclone.escape.change_json_decoder,
+                              self._get_custom_json_decoder())
+        obj_to_encode = dict(
+            foo=dict(
+                baz=[dict(my_timestamp=datetime.datetime(2000, 1, 1))]
+            )
+        )
+        encoded_object = cyclone.escape.json_encode(obj_to_encode)
+        self.assertTrue('{"foo":{"baz":[{"my_timestamp":{"__datetime__":true,"raw":946684800}}]}}' ==
+                        encoded_object)
+        self.assertTrue(obj_to_encode ==
+                        cyclone.escape.json_decode(encoded_object))
+
+    def test_default_json_encoder_with_custom_json_decoder(self):
+        self.failUnlessRaises(ValueError, cyclone.escape.change_json_decoder,
+                              self._get_custom_json_decoder())
+        obj_to_encode = dict(
+            foo=dict(
+                baz=[dict(my_timestamp=datetime.datetime(2000, 1, 1))]
+            )
+        )
+        # decode will raise TypeError because it can't handle datetime objects
+        self.failUnlessRaises(TypeError, cyclone.escape.json_encode,
+                              obj_to_encode)
+        obj_to_encode = dict(
+            foo=dict(
+                baz=[0, 1]
+            )
+        )
+        encoded_object = cyclone.escape.json_encode(obj_to_encode)
+        self.assertTrue('{"foo": {"baz": [0, 1]}}' ==
+                        encoded_object)
+        self.assertTrue(obj_to_encode ==
+                        cyclone.escape.json_decode(encoded_object))
+
+    def test_custom_json_encoder_with_default_json_decoder(self):
+        self.failUnlessRaises(ValueError, cyclone.escape.change_json_encoder,
+                              self._get_custom_json_encoder())
+        obj_to_encode = dict(
+            foo=dict(
+                baz=[dict(my_timestamp=datetime.datetime(2000, 1, 1))]
+            )
+        )
+        encoded_object = cyclone.escape.json_encode(obj_to_encode)
+        decoded_object = cyclone.escape.json_decode(encoded_object)
+        self.assertFalse(obj_to_encode == decoded_object)
+        self.assertTrue(946684800 == self._getkey(decoded_object,
+                                                  'foo', 'baz', 0,
+                                                  'my_timestamp', 'raw'))

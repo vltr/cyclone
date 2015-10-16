@@ -14,8 +14,9 @@
 # License for the specific language governing permissions and limitations
 # under the License.
 
-from twisted.trial import unittest
+import cyclone.escape
 from mock import Mock
+from twisted.trial import unittest
 from cyclone.jsonrpc import JsonrpcRequestHandler
 from cyclone.web import Application
 
@@ -32,12 +33,16 @@ class TestJsonrpcRequestHandler(unittest.TestCase):
         self.handler.jsonrpc_foo = lambda: "value"
         self.handler.request.body = '{"id":1, "method":"foo"}'
         self.handler.post()
-        self.handler.finish.assert_called_with(
-            '{"error": null, "id": 1, "result": "value"}')
+        # i haven't found any other way to safely test this because json
+        # encoders may differ results, specially using pypy -- @vltr
+        encoded_object = self.handler.finish.call_args[0][0]
+        self.assertTrue(dict(result="value", error=None, id=1) ==
+                        cyclone.escape.json_decode(encoded_object))
 
     def test_default_jsonrpc_headers(self):
         self.handler.jsonrpc_foo = lambda: "value"
         self.handler.request.body = '{"id":1, "method":"foo"}'
         self.handler.post()
         self.assertTrue("Content-Type" in self.handler._headers)
-        self.assertTrue("application/json; charset=UTF-8" == self.handler._headers.get("Content-Type"))
+        self.assertTrue("application/json; charset=UTF-8" ==
+                        self.handler._headers.get("Content-Type"))
