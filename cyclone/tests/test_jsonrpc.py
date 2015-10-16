@@ -35,7 +35,10 @@ class TestJsonrpcRequestHandler(unittest.TestCase):
         self.handler.post()
         # i haven't found any other way to safely test this because json
         # encoders may differ results, specially using pypy -- @vltr
-        encoded_object = self.handler.finish.call_args[0][0]
+        # UPDATE: found this: http://stackoverflow.com/a/28418085
+        call = self.handler.finish.call_args
+        call_args, call_kwargs = call
+        encoded_object = call_args[0]
         self.assertTrue(dict(result="value", error=None, id=1) ==
                         cyclone.escape.json_decode(encoded_object))
 
